@@ -6,7 +6,7 @@ This is an Odin + Raylib game boilerplate, that aims to offer support for hot re
 
 - ### Single-file Webassembly build
 
-For the Webassembly builds, I've chosen to allow for some overhead in terms of bundle size to obtain the advantage of generating a single self-contained HTML file with everything that is necessary to run the game (including the compiled WASM file and all the assets inlined as base64 strings in the script tag inlined to the HTML file). I'm also including auxiliary scripts and other minor things (like the favicon used by the HTML file, also as a base64 string URI).
+For the Webassembly builds, I've chosen to allow for some overhead in terms of bundle size to obtain the advantage of generating a single self-contained HTML file with everything that is necessary to run the game (including the compiled WASM file and all the assets as base64 strings in the script tag inlined to the HTML file). I'm also including auxiliary scripts and other minor things (like the favicon used by the HTML file, also as a base64 string URI).
 
 That, IMHO, offers the convenience of running the game just by opening the HTML file locally in a web browser (just by double-clicking the file on your file manager), without the need to serve the files to comply with browser policies that would prevent loading the need files directly from the disk.
 
