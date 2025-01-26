@@ -14,6 +14,12 @@ That, IMHO, offers the convenience of running the game just by opening the HTML 
 
 Instead of having to manually run the hot-reload build script (or trigger its execution through a bind-key) after saving changes to your code, I've chosen to implement a minimal build logic that monitors the source files and triggers the hot-reload build automatically once any changes are detected to any of the source files.
 
+- ### Single build script for each target (WIP)
+
+Instead of keeping separate shell scripts and batch scripts to build the project depending on your operating system (Linux and MacOS, or Windows), I'm currently adapting the build scripts as Python scripts (that I assume to be a widely standardized and available scripting language on any operating system, but I don't use Windows so I may be wrong about it. I'm at least sure it's present by default OOB in all major Linux distributions and also on MacOS).
+
+*Maybe it would be better to write a single self-contained mini-application using Odin itself for the build processes?* 🤔
+
 ## About the original project
 
 The project is an adaptation of the original [Karl Zylinski](https://github.com/karl-zylinski)'s project, that you may find [here](https://github.com/karl-zylinski/odin-raylib-hot-reload-game-template). My version aims to adjust its functionality to fit my personal development workflow and choices better, but you should definitely check out his work.
