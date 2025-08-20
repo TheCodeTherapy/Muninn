@@ -1,0 +1,197 @@
+name: Build and Deploy WebAssembly
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch: # Allow manual triggering
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Odin
+      run: |
+        # Download and install latest Odin release
+        ODIN_VERSION=$(curl -s https://api.github.com/repos/odin-lang/Odin/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        echo "Installing Odin version: $ODIN_VERSION"
+
+        wget -q "https://github.com/odin-lang/Odin/releases/download/$ODIN_VERSION/odin-ubuntu-amd64-$ODIN_VERSION.zip" -O odin.zip
+        unzip -q odin.zip
+        sudo mv odin-* /opt/odin
+        echo "/opt/odin" >> $GITHUB_PATH
+
+        # Verify installation
+        /opt/odin/odin version
+
+    - name: Setup Emscripten SDK
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: latest
+
+    - name: Cache EMSDK
+      uses: actions/cache@v4
+      with:
+        path: ~/.emsdk
+        key: ${{ runner.os }}-emsdk-${{ hashFiles('**/build.odin') }}
+        restore-keys: |
+          ${{ runner.os }}-emsdk-
+
+    - name: Bootstrap build system
+      run: |
+        odin build build.odin -file -out:build
+        chmod +x build
+
+    - name: Build WebAssembly (Release)
+      run: |
+        ./build web
+
+    - name: Build WebAssembly Single File (Release)
+      run: |
+        ./build web-single
+
+    - name: Build WebAssembly (Debug)
+      run: |
+        ./build web --debug
+
+    - name: Build WebAssembly Single File (Debug)
+      run: |
+        ./build web-single --debug
+
+    - name: Prepare deployment structure
+      run: |
+        mkdir -p dist
+
+        # Copy regular web builds
+        cp -r build/web dist/
+        cp -r build/web_debug dist/
+
+        # Copy single-file builds with meaningful names
+        mkdir -p dist/single
+        cp build/web_single/game_standalone.html dist/single/index.html
+        cp build/web_single_debug/game_standalone.html dist/single/debug.html
+
+        # Create an index.html that lists all builds
+        cat > dist/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Muninn - Odin + Raylib Game Builds</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    max-width: 800px;
+                    margin: 0 auto;
+                    padding: 20px;
+                    background: #1a1a1a;
+                    color: #ffffff;
+                }
+                .build-link {
+                    display: block;
+                    padding: 15px 20px;
+                    margin: 10px 0;
+                    background: #2a2a2a;
+                    color: #4CAF50;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    border-left: 4px solid #4CAF50;
+                    transition: all 0.3s ease;
+                }
+                .build-link:hover {
+                    background: #3a3a3a;
+                    transform: translateX(5px);
+                }
+                .debug { border-left-color: #FF9800; color: #FF9800; }
+                .description { color: #cccccc; font-size: 0.9em; margin-top: 5px; }
+                h1 { color: #4CAF50; text-align: center; }
+                .section { margin: 30px 0; }
+                .section h2 { color: #ffffff; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }
+            </style>
+        </head>
+        <body>
+            <h1>🎮 Muninn - Game Builds</h1>
+            <p>Welcome to Muninn, an Odin + Raylib game. Choose a build to play:</p>
+
+            <div class="section">
+                <h2>🌐 Web Builds (Require Web Server)</h2>
+                <a href="web/" class="build-link">
+                    <strong>Release Build</strong>
+                    <div class="description">Optimized for performance. Best for regular gameplay.</div>
+                </a>
+                <a href="web_debug/" class="build-link debug">
+                    <strong>Debug Build</strong>
+                    <div class="description">With debug information and logging. Useful for development.</div>
+                </a>
+            </div>
+
+            <div class="section">
+                <h2>📦 Single-File Builds (Click to Play)</h2>
+                <a href="single/" class="build-link">
+                    <strong>Single-File Release</strong>
+                    <div class="description">Self-contained HTML file. Download and open locally!</div>
+                </a>
+                <a href="single/debug.html" class="build-link debug">
+                    <strong>Single-File Debug</strong>
+                    <div class="description">Debug version as a single file. Perfect for testing.</div>
+                </a>
+            </div>
+
+            <div class="section">
+                <h2>ℹ️ About the Builds</h2>
+                <ul style="color: #cccccc;">
+                    <li><strong>Web Builds:</strong> Standard WebAssembly builds that need to be served from a web server (like this page)</li>
+                    <li><strong>Single-File Builds:</strong> Everything embedded in one HTML file. Can be downloaded and opened locally in any browser</li>
+                    <li><strong>Release vs Debug:</strong> Release builds are optimized for performance, Debug builds include additional logging and debugging features</li>
+                </ul>
+            </div>
+
+            <footer style="text-align: center; margin-top: 40px; color: #666;">
+                <p>Built with ❤️ using <a href="https://odin-lang.org/" style="color: #4CAF50;">Odin</a> + <a href="https://raylib.com/" style="color: #4CAF50;">Raylib</a></p>
+            </footer>
+        </body>
+        </html>
+        EOF
+
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./dist
+
+    - name: List built files (for debugging)
+      run: |
+        echo "=== Build directory structure ==="
+        find dist -type f | head -20
+        echo "=== Web build files ==="
+        ls -la dist/web/ || true
+        echo "=== Single file builds ==="
+        ls -la dist/single/ || true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+
+    # Remove the environment constraint since it might not exist yet
+    # GitHub Pages will work without explicitly defining the environment
+
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
