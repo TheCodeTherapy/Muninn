@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+	<title>Odin + Raylib on the web</title>
+	<meta name="title" content="Odin + Raylib on the web">
+	<meta name="description" content="Make games using Odin + Raylib that work in the browser">
+	<meta name="viewport" content="width=device-width">
+
+	<style>
+		body {
+			margin: 0px;
+			overflow: hidden;
+			background-color: black;
+		}
+		canvas.game_canvas {
+			border: 0px none;
+			background-color: black;
+			padding-left: 0;
+			padding-right: 0;
+			margin-left: auto;
+			margin-right: auto;
+			display: block;
+		}
+	</style>
+</head>
+<body>
+	<canvas class="game_canvas" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
+	<script type="text/javascript">ODIN_JS_CONTENT</script>
+	<script>
+		var odinMemoryInterface = new odin.WasmMemoryInterface();
+		odinMemoryInterface.setIntSize(4);
+		var odinImports = odin.setupDefaultImports(odinMemoryInterface);
+
+		// Module configuration for single-file builds
+		var Module = {
+			canvas: document.getElementById("canvas"),
+			print: function(text) {
+				if (arguments.length > 1) {
+					text = Array.prototype.slice.call(arguments).join(' ');
+				}
+				console.log('[wasm] ' + text);
+			},
+			printErr: function(text) {
+				if (arguments.length > 1) {
+					text = Array.prototype.slice.call(arguments).join(' ');
+				}
+				console.error('[wasm] ' + text);
+			},
+			onRuntimeInitialized: function() {
+				console.log('WASM runtime initialized');
+				if (Module.asm) {
+					odinMemoryInterface.setExports(Module.asm);
+					odinMemoryInterface.setMemory(Module.asm.memory);
+				}
+			}
+		};
+
+		// Store original instantiateWasm if Emscripten provides one
+		var originalInstantiateWasm = Module.instantiateWasm;
+
+		// Override instantiateWasm to inject odin imports
+		Module.instantiateWasm = function(imports, successCallback) {
+			// Merge odin imports with emscripten imports
+			var mergedImports = {};
+
+			// Copy emscripten imports
+			for (var key in imports) {
+				mergedImports[key] = imports[key];
+			}
+
+			// Add odin imports
+			for (var key in odinImports) {
+				mergedImports[key] = odinImports[key];
+			}
+
+			// If there's an original instantiateWasm (from single-file build), use it
+			if (originalInstantiateWasm) {
+				return originalInstantiateWasm(mergedImports, function(instance) {
+					odinMemoryInterface.setExports(instance.exports);
+					odinMemoryInterface.setMemory(instance.exports.memory);
+					return successCallback(instance);
+				});
+			}
+
+			// Fallback: Let emscripten handle it with merged imports
+			return false;
+		};
+	</script>
+
+	<!-- Emscripten injects its javascript here -->
+	{{{ SCRIPT }}}
+</body>
+</html>

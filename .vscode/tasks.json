@@ -1,0 +1,161 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Bootstrap Build System",
+      "type": "shell",
+      "command": "odin",
+      "args": ["build", "build.odin", "-file", "-out:build.exe"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Hot Reload Development",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-Command",
+        "odin build build.odin -file -out:build.exe && .\\build.exe hot-reload"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "____NEVER_MATCH_ANYTHING____",
+          "file": 1,
+          "line": 1,
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "🔥 Hot Reload Build System",
+          "endsPattern": "✅ Watching for file changes"
+        }
+      }
+    },
+    {
+      "label": "Build Debug",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-Command",
+        "odin build build.odin -file -out:build.exe && .\\build.exe debug"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Build Release",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-Command",
+        "odin build build.odin -file -out:build.exe && .\\build.exe release"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Build Web (Debug)",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-Command",
+        "odin build build.odin -file -out:build.exe && .\\build.exe web --debug && .\\build.exe web-single --debug"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Build Web (Release)",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-Command",
+        "odin build build.odin -file -out:build.exe && .\\build.exe web && .\\build.exe web-single"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Build Web Only",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-Command",
+        "odin build build.odin -file -out:build.exe && .\\build.exe web"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Build Web Single Only",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-Command",
+        "odin build build.odin -file -out:build.exe && .\\build.exe web-single"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    }
+  ]
+}

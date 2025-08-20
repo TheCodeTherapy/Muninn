@@ -1,0 +1,156 @@
+=== SHADER MANAGER DEBUG (Frame 2800) ===
+Shader count: 4
+Screen size: 1397x1328
+Time: 23.867
+--- Shader 0 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Shader 1 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Shader 2 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Shader 3 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Additional Uniform Values ---
+--- Common Uniform Values ---
+  resolution: (1397.000, 1328.000) (Vector2)
+--- Render Target Status ---
+  Target 0: read_buffer.id=1, write_buffer.id=2
+  Target 0: read_buffer.texture.id=3, write_buffer.texture.id=4
+  Target 1: read_buffer.id=3, write_buffer.id=4
+  Target 1: read_buffer.texture.id=5, write_buffer.texture.id=6
+  Target 2: read_buffer.id=5, write_buffer.id=6
+  Target 2: read_buffer.texture.id=7, write_buffer.texture.id=8
+  Target 3: read_buffer.id=7, write_buffer.id=8
+  Target 3: read_buffer.texture.id=9, write_buffer.texture.id=10
+--- Texture Binding Information (Current Frame State) ---
+  Shader 0 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=3 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=5 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=7 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=9 (from target[3].read_buffer)
+  Shader 1 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=3 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=5 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=7 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=9 (from target[3].read_buffer)
+  Shader 2 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=3 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=5 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=7 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=9 (from target[3].read_buffer)
+  Shader 3 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=3 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=5 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=7 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=9 (from target[3].read_buffer)
+=== END SHADER MANAGER DEBUG ===
+=== SHADER MANAGER DEBUG (Frame 2801) ===
+Shader count: 4
+Screen size: 1397x1328
+Time: 23.876
+--- Shader 0 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Shader 1 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Shader 2 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Shader 3 Uniform Locations ---
+  time: 9
+  frame: 0
+  resolution: 8
+  prgm0Texture: 4
+  prgm1Texture: 5
+  prgm2Texture: 6
+  prgm3Texture: 7
+  mouse: 1
+  mouselerp: 2
+--- Additional Uniform Values ---
+--- Common Uniform Values ---
+  resolution: (1397.000, 1328.000) (Vector2)
+--- Render Target Status ---
+  Target 0: read_buffer.id=2, write_buffer.id=1
+  Target 0: read_buffer.texture.id=4, write_buffer.texture.id=3
+  Target 1: read_buffer.id=4, write_buffer.id=3
+  Target 1: read_buffer.texture.id=6, write_buffer.texture.id=5
+  Target 2: read_buffer.id=6, write_buffer.id=5
+  Target 2: read_buffer.texture.id=8, write_buffer.texture.id=7
+  Target 3: read_buffer.id=8, write_buffer.id=7
+  Target 3: read_buffer.texture.id=10, write_buffer.texture.id=9
+--- Texture Binding Information (Current Frame State) ---
+  Shader 0 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=4 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=6 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=8 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=10 (from target[3].read_buffer)
+  Shader 1 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=4 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=6 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=8 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=10 (from target[3].read_buffer)
+  Shader 2 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=4 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=6 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=8 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=10 (from target[3].read_buffer)
+  Shader 3 texture bindings:
+    prgm0Texture (loc=4) -> texture.id=4 (from target[0].read_buffer)
+    prgm1Texture (loc=5) -> texture.id=6 (from target[1].read_buffer)
+    prgm2Texture (loc=6) -> texture.id=8 (from target[2].read_buffer)
+    prgm3Texture (loc=7) -> texture.id=10 (from target[3].read_buffer)
+=== END SHADER MANAGER DEBUG ===

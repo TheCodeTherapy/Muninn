@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "cppvsdbg",
+      "request": "launch",
+      "preLaunchTask": "Hot Reload Development",
+      "name": "Run Hot Reload Development",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/game_hot_reload.exe"
+    },
+    {
+      "type": "cppvsdbg",
+      "request": "launch",
+      "preLaunchTask": "Build Debug",
+      "name": "Run Debug Build",
+      "program": "${workspaceFolder}/build/debug/game_debug.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "cppvsdbg",
+      "request": "launch",
+      "preLaunchTask": "Build Release",
+      "name": "Run Release Build",
+      "program": "${workspaceFolder}/build/release/game_release.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Build and Serve Web (Debug)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo 'Debug web build complete. Starting local server...' && cd build/web_debug && python -m http.server 8000",
+      "preLaunchTask": "Build Web (Debug)"
+    },
+    {
+      "name": "Build and Serve Web (Release)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo 'Release web build complete. Starting local server...' && cd build/web && python -m http.server 8000",
+      "preLaunchTask": "Build Web (Release)"
+    }
+  ]
+}

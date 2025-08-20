@@ -1,0 +1,22 @@
+{
+  "recommendations": [
+    "vadimcn.vscode-lldb", // Core debugging support
+    "ms-vscode.cpptools", // C/C++ support
+    "DanielGavin.ols", // Odin language support
+    "ms-vscode.powershell", // Better terminal support
+    "editorconfig.editorconfig", // Code formatting and quality
+    "ms-vscode.vscode-json",
+
+    "aaron-bond.better-comments",
+    "pkief.material-icon-theme",
+    "zhuangtongfa.material-theme",
+
+    "ms-vscode.cmake-tools",
+    "twxs.cmake"
+  ],
+  "unwantedRecommendations": [
+    // disable heavy extensions
+    "ms-python.python",
+    "ms-toolsai.jupyter"
+  ]
+}
