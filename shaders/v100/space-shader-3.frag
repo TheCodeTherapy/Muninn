@@ -69,16 +69,16 @@ void main() {
   vec3 light = normalize(vec3(0.2, -0.5, 0.7));
   float diffuse = dot(grad, light);
   float ref = -reflect(light, grad).z;
-  float refMixMap = clamp(-ref, 0.0, 1.0);
-  refMixMap = refMixMap * refMixMap * refMixMap * refMixMap * refMixMap * 2.5;
+  float refMixMap = clamp(-ref, 0.0, 0.5);
+  refMixMap = refMixMap * refMixMap * refMixMap * refMixMap * refMixMap;
   float spec = pow(abs(max(-1.0, ref)), 10.0) * 2.0;
   vec4 col = c + vec4(mix(spec * spec, spec, refMixMap));
   col = clamp(col, 0.005, 1.0);
   vec4 result = vec4(col.rgb, 1.0);
-  vec4 text = texture2D(prgm1Texture, uv);
-  if (text.g > 0.99) {
-    result += text.g;
-  }
+  // vec4 text = texture2D(prgm1Texture, uv);
+  // if (text.g > 0.99) {
+  //   result += text.g;
+  // }
 
   // if (frame < 0) result += preventOptimizationToDebugUniformLoc(uv);
 

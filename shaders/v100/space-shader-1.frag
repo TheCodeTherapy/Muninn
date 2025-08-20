@@ -89,7 +89,6 @@ void main() {
 
   // d = smoothstep(30.0, 0.5, length(mp.xy - gl_FragCoord.xy) * 1.5);
 
-  float s = 0.0;
   float speed_factor = ship_speed / 50.0;
   vec2 flipped_fragcoord = vec2(gl_FragCoord.x, resolution.y - gl_FragCoord.y);
   float trail_length = speed_factor * 3.0;
