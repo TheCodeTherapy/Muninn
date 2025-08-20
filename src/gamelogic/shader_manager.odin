@@ -118,11 +118,6 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
       return false
     }
 
-    rl.SetTextureWrap(sm.render_targets[i].read_buffer.texture, .CLAMP)
-    rl.SetTextureWrap(sm.render_targets[i].write_buffer.texture, .CLAMP)
-    rl.SetTextureFilter(sm.render_targets[i].read_buffer.texture, .POINT)
-    rl.SetTextureFilter(sm.render_targets[i].write_buffer.texture, .POINT)
-
     rl.BeginTextureMode(sm.render_targets[i].read_buffer)
     rl.ClearBackground(rl.Color{0, 0, 0, 255})
     rl.EndTextureMode()
@@ -519,11 +514,6 @@ shader_manager_resize :: proc(sm: ^Shader_Manager, new_width, new_height: i32) {
     rl.UnloadRenderTexture(target.write_buffer)
     target.read_buffer = LoadRT_WithFallback(new_width, new_height, .UNCOMPRESSED_R32G32B32A32)
     target.write_buffer = LoadRT_WithFallback(new_width, new_height, .UNCOMPRESSED_R32G32B32A32)
-
-    rl.SetTextureWrap(target.read_buffer.texture, .CLAMP)
-    rl.SetTextureWrap(target.write_buffer.texture, .CLAMP)
-    rl.SetTextureFilter(target.read_buffer.texture, .POINT)
-    rl.SetTextureFilter(target.write_buffer.texture, .POINT)
   }
 
   log.infof("Shader manager '%s' resized to %dx%d", sm.name, new_width, new_height)
