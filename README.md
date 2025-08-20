@@ -133,7 +133,7 @@ Shows detailed usage information and all available commands.
 
 #### Texture Format:
 
-- Raylib (or at least its implementation vendored by Odin) currently used by Odin does not expose a `LoadRenderTexture` method that allows to pick a specific `PixelFormat`. Because of that, I wrote my own implementation of `LoadRenderTextureWithFormat` and `LoadRT_WithFallback`. The former just tries to create the `RenderTexture2D` with the chosen `PixelFormat` and the latter uses the former with a fall-through logic in case the wanted `PixelFormat` is not available (which is quite common in the WASM build). Weirdly, the WASM build works fine with `UNCOMPRESSED_R32G32B32A32` (FloatType) when the build targets `WebGL1` and `#version 100` shaders, but it falls through into `UNCOMPRESSED_R8G8B8A8` when the build targets `WebGL2` and `#version 300 es` shaders. I couldn't find the time to start investigating that yet.
+- Raylib (or at least its implementation vendored by Odin) does not expose a `LoadRenderTexture` method that allows to pick a specific `PixelFormat`. Because of that, I wrote my own implementation of `LoadRenderTextureWithFormat` and `LoadRT_WithFallback`. The former just tries to create the `RenderTexture2D` with the chosen `PixelFormat` and the latter uses the former with a fall-through logic in case the wanted `PixelFormat` is not available (which is quite common in the WASM build). Weirdly, the WASM build works fine with `UNCOMPRESSED_R32G32B32A32` (FloatType) when the build targets `WebGL1` and `#version 100` shaders, but it falls through into `UNCOMPRESSED_R8G8B8A8` when the build targets `WebGL2` and `#version 300 es` shaders. I couldn't find the time to start investigating that yet.
 
 ## Thanks and Credits:
 
