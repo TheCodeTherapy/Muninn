@@ -271,7 +271,12 @@ update :: proc() {
 		// set new thruster uniforms
 		shader_manager_set_uniform(&g_state.space_shaders, "ship_direction", ship_direction)
 		shader_manager_set_uniform(&g_state.space_shaders, "ship_velocity", g_state.ship.velocity)
-		shader_manager_set_uniform(&g_state.space_shaders, "ship_speed", ship_speed)
+		warp_boost := math.clamp(ship_speed - 995.75, 0.0, 1000.0) * 1.2
+		shader_manager_set_uniform(
+			&g_state.space_shaders,
+			"ship_speed",
+			ship_speed + warp_boost,
+		)
 
 		shader_manager_update(&g_state.space_shaders, delta_time)
 
