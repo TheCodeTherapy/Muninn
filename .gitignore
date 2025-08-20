@@ -1,4 +1,3 @@
-build/**
 project.sublime-workspace
 game_hot_reload.exe
 game_hot_reload.bin
@@ -7,3 +6,10 @@ raylib.dll
 linux/**
 build.exe
 docs/odin
+!build/web_single/game_standalone.html
+!build/web_single_debug/game_standalone.html
+build/debug/
+build/hot_reload/
+build/release/
+build/web/
+build/web_debug/
