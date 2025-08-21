@@ -36,6 +36,7 @@ Shader_Manager :: struct {
 
   uniform_locations: []map[string]i32, //           uniform locations for each shader
   time: f32, //                                     common uniform values
+  delta_time: f32, //                               time since last frame
   frame: i32, //                                    common uniform values
   fps: f32, //                                      current FPS (updated every frame)
   resolution: rl.Vector2, //                        common uniform values
@@ -81,8 +82,10 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
   sm.screen_width = width
   sm.screen_height = height
   sm.resolution = rl.Vector2{f32(width), f32(height)}
-  sm.frame = 0
   sm.time = 0.0
+  sm.delta_time = 0.0
+  sm.frame = 0
+  sm.fps = 0.0
   sm.mouse_pos = rl.Vector2{0, 0}
   sm.mouse_target = rl.Vector2{0, 0}
   sm.mouse_lerp = rl.Vector2{0, 0}
@@ -163,7 +166,9 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
 
     // get locations for common uniforms
     sm.uniform_locations[i]["time"] = rl.GetShaderLocation(sm.shaders[i], "time")
+    sm.uniform_locations[i]["delta_time"] = rl.GetShaderLocation(sm.shaders[i], "delta_time")
     sm.uniform_locations[i]["frame"] = rl.GetShaderLocation(sm.shaders[i], "frame")
+    sm.uniform_locations[i]["fps"] = rl.GetShaderLocation(sm.shaders[i], "fps")
     sm.uniform_locations[i]["resolution"] = rl.GetShaderLocation(sm.shaders[i], "resolution")
     sm.uniform_locations[i]["mouse"] = rl.GetShaderLocation(sm.shaders[i], "mouse")
     sm.uniform_locations[i]["mouselerp"] = rl.GetShaderLocation(sm.shaders[i], "mouselerp")
@@ -177,7 +182,9 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     log.infof("Shader %d common uniforms: time=%d, frame=%d, resolution=%d, mouse=%d, mouselerp=%d",
       i,
       sm.uniform_locations[i]["time"],
+      sm.uniform_locations[i]["delta_time"],
       sm.uniform_locations[i]["frame"],
+      sm.uniform_locations[i]["fps"],
       sm.uniform_locations[i]["resolution"],
       sm.uniform_locations[i]["mouse"],
       sm.uniform_locations[i]["mouselerp"],
@@ -292,7 +299,9 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
 
     // get locations for common uniforms
     sm.uniform_locations[i]["time"] = rl.GetShaderLocation(sm.shaders[i], "time")
+    sm.uniform_locations[i]["delta_time"] = rl.GetShaderLocation(sm.shaders[i], "delta_time")
     sm.uniform_locations[i]["frame"] = rl.GetShaderLocation(sm.shaders[i], "frame")
+    sm.uniform_locations[i]["fps"] = rl.GetShaderLocation(sm.shaders[i], "fps")
     sm.uniform_locations[i]["resolution"] = rl.GetShaderLocation(sm.shaders[i], "resolution")
     sm.uniform_locations[i]["mouse"] = rl.GetShaderLocation(sm.shaders[i], "mouse")
     sm.uniform_locations[i]["mouselerp"] = rl.GetShaderLocation(sm.shaders[i], "mouselerp")
@@ -307,7 +316,9 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
       "RELOADED Shader %d common uniforms: time=%d, frame=%d, resolution=%d, mouse=%d, mouselerp=%d",
       i,
       sm.uniform_locations[i]["time"],
+      sm.uniform_locations[i]["delta_time"],
       sm.uniform_locations[i]["frame"],
+      sm.uniform_locations[i]["fps"],
       sm.uniform_locations[i]["resolution"],
       sm.uniform_locations[i]["mouse"],
       sm.uniform_locations[i]["mouselerp"],
@@ -383,11 +394,16 @@ write_debug_log :: proc(sm: ^Shader_Manager, append_mode := false) {
   fmt.printf("Shader count: %d\n", sm.shader_count)
   fmt.printf("Screen size: %dx%d\n", sm.screen_width, sm.screen_height)
   fmt.printf("Time: %.3f\n", sm.time)
+  fmt.printf("Delta time: %.3f\n", sm.delta_time)
+  fmt.printf("Frame: %d\n", sm.frame)
+  fmt.printf("FPS: %.3f\n", sm.fps)
 
   for i in 0..<sm.shader_count {
     fmt.printf("--- Shader %d Uniform Locations ---\n", i)
     fmt.printf("  time: %d\n", sm.uniform_locations[i]["time"] if "time" in sm.uniform_locations[i] else -999)
+    fmt.printf("  delta_time: %d\n", sm.uniform_locations[i]["delta_time"] if "delta_time" in sm.uniform_locations[i] else -999)
     fmt.printf("  frame: %d\n", sm.uniform_locations[i]["frame"] if "frame" in sm.uniform_locations[i] else -999)
+    fmt.printf("  fps: %d\n", sm.uniform_locations[i]["fps"] if "fps" in sm.uniform_locations[i] else -999)
     fmt.printf("  resolution: %d\n", sm.uniform_locations[i]["resolution"] if "resolution" in sm.uniform_locations[i] else -999)
 
     for j in 0..<sm.shader_count {
@@ -466,6 +482,7 @@ shader_manager_update :: proc(sm: ^Shader_Manager, delta_time: f32) {
   }
 
   sm.fps = f32(rl.GetFPS())
+  sm.delta_time = delta_time
   sm.time += delta_time
   sm.frame += 1
 
@@ -551,8 +568,12 @@ shader_manager_debug_ui :: proc(sm: ^Shader_Manager) {
       mu.label(ctx, fmt.tprintf("%.0fx%.0f", sm.resolution.x, sm.resolution.y))
       mu.label(ctx, "Time:")
       mu.label(ctx, fmt.tprintf("%.3f", sm.time))
+      mu.label(ctx, "Delta Time:")
+      mu.label(ctx, fmt.tprintf("%.3f", sm.delta_time))
       mu.label(ctx, "Frame:")
       mu.label(ctx, fmt.tprintf("%d", sm.frame))
+      mu.label(ctx, "FPS:")
+      mu.label(ctx, fmt.tprintf("%.3f", sm.fps))
     }
 
     // uniform locations
@@ -575,10 +596,12 @@ shader_manager_debug_ui :: proc(sm: ^Shader_Manager) {
       // create dynamic uniform names list (persist for entire UI frame)
       uniform_names := make([]string, 5 + sm.shader_count) // 5 standard + N texture uniforms
       uniform_names[0] = "time"
-      uniform_names[1] = "frame"
-      uniform_names[2] = "resolution"
-      uniform_names[3] = "mouse"
-      uniform_names[4] = "mouselerp"
+      uniform_names[1] = "delta_time"
+      uniform_names[2] = "frame"
+      uniform_names[3] = "fps"
+      uniform_names[4] = "resolution"
+      uniform_names[5] = "mouse"
+      uniform_names[6] = "mouselerp"
       texture_uniform_names := make([]string, sm.shader_count)
       for i in 0..<sm.shader_count {
         texture_uniform_names[i] = fmt.aprintf("prgm%dTexture", i)
@@ -615,8 +638,12 @@ shader_manager_debug_ui :: proc(sm: ^Shader_Manager) {
       mu.label(ctx, fmt.tprintf("(%.3f, %.3f)", sm.resolution.x, sm.resolution.y))
       mu.label(ctx, "Time:")
       mu.label(ctx, fmt.tprintf("%.3f", sm.time))
+      mu.label(ctx, "Delta Time:")
+      mu.label(ctx, fmt.tprintf("%.3f", sm.delta_time))
       mu.label(ctx, "Frame:")
       mu.label(ctx, fmt.tprintf("%d", sm.frame))
+      mu.label(ctx, "FPS:")
+      mu.label(ctx, fmt.tprintf("%.3f", sm.fps))
       mu.label(ctx, "Mouse Pos:")
       mu.label(ctx, fmt.tprintf("(%.3f, %.3f)", sm.mouse_pos.x, sm.mouse_pos.y))
       mu.label(ctx, "Mouse Target:")
@@ -920,7 +947,9 @@ shader_manager_render_pass :: proc(sm: ^Shader_Manager, shader_index: int, targe
 
   // set common uniforms
   shader_manager_apply_uniform(shader, locations["time"], sm.time)
+  shader_manager_apply_uniform(shader, locations["delta_time"], sm.delta_time)
   shader_manager_apply_uniform(shader, locations["frame"], sm.frame)
+  shader_manager_apply_uniform(shader, locations["fps"], sm.fps)
   shader_manager_apply_uniform(shader, locations["resolution"], sm.resolution)
   shader_manager_apply_uniform(shader, locations["mouse"], sm.mouse_pos)
   shader_manager_apply_uniform(shader, locations["mouselerp"], sm.mouse_lerp)
