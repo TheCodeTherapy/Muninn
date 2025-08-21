@@ -127,6 +127,9 @@ init :: proc() {
 		// TODO: Add proper logging for missing font atlas
 	}
 
+	// load assets (including window icon)
+	load_assets()
+
 	g_state^ = Game_State {
 		resolution = rl.Vector2{width, height},
 		fps = 0,
@@ -271,7 +274,7 @@ update :: proc() {
 		// set new thruster uniforms
 		shader_manager_set_uniform(&g_state.space_shaders, "ship_direction", ship_direction)
 		shader_manager_set_uniform(&g_state.space_shaders, "ship_velocity", g_state.ship.velocity)
-		warp_boost := math.clamp(ship_speed - 995.75, 0.0, 1000.0) * 1.2
+		warp_boost := math.clamp(ship_speed - 997.75, 0.0, 1000.0) * 1.2
 		shader_manager_set_uniform(
 			&g_state.space_shaders,
 			"ship_speed",
