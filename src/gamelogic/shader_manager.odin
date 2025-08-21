@@ -1003,7 +1003,110 @@ shader_manager_get_output_texture :: proc(sm: ^Shader_Manager) -> rl.Texture2D {
   return rl.Texture2D{}
 }
 
-// load and preprocess shaders - replaces // #include text-system with actual text-system.frag content
+// resolve shader path to correct version directory (v100 or v300es)
+resolve_shader_path :: proc(relative_path: string, allocator := context.allocator) -> string {
+  base_path := "shaders/v100/"
+  when USE_WEBGL2 {
+    base_path = "shaders/v300es/"
+  }
+  return fmt.aprintf("%s%s", base_path, relative_path, allocator = allocator)
+}
+
+// process #include directives in shader source
+process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path: string, depth: int = 0) -> string {
+  // nesting safe-guard
+  if depth > 10 {
+    log.errorf("Maximum include depth exceeded (10) in %s", source_path)
+    return source
+  }
+
+  if !strings.contains(source, "#include") {
+    return source
+  }
+
+  builder := strings.builder_make()
+  defer strings.builder_destroy(&builder)
+
+  lines := strings.split_lines(source)
+  defer delete(lines)
+
+  for line_idx in 0..<len(lines) {
+    line := lines[line_idx]
+    trimmed_line := strings.trim_space(line)
+
+    // look for #include directive
+    // I think I'll support a commented out // #include in case I'm editing shaders
+    // with some fucking annoying GLSL validator that keeps screaming at me
+    if strings.has_prefix(trimmed_line, "#include ") || strings.has_prefix(trimmed_line, "// #include ") {
+      // Extract filename from include directive
+      include_filename := extract_include_filename(trimmed_line)
+      if include_filename == "" {
+        log.warnf("Invalid #include directive at line %d in %s: %s", line_idx + 1, source_path, line)
+        strings.write_string(&builder, line)
+        strings.write_byte(&builder, '\n')
+        continue
+      }
+
+      include_path := resolve_shader_path(include_filename)
+      defer delete(include_path)
+
+      include_data, include_ok := sm.file_reader(include_path)
+      if !include_ok {
+        log.errorf("Failed to read include file: %s (referenced from %s)", include_path, source_path)
+        strings.write_string(&builder, line)
+        strings.write_byte(&builder, '\n')
+        continue
+      }
+      defer delete(include_data)
+
+      include_source := string(include_data)
+
+      processed_include := process_shader_includes(sm, include_source, include_path, depth + 1)
+      defer if processed_include != include_source do delete(processed_include)
+
+      strings.write_string(&builder, processed_include)
+      strings.write_byte(&builder, '\n')
+
+      log.infof("Included %s into %s (depth %d)", include_path, source_path, depth)
+    } else {
+      strings.write_string(&builder, line)
+      strings.write_byte(&builder, '\n')
+    }
+  }
+
+  return strings.clone(strings.to_string(builder))
+}
+
+// extract filename from #include directive
+extract_include_filename :: proc(line: string) -> string {
+  trimmed := strings.trim_space(line)
+
+  // remove comment prefix if present
+  // TODO: improve this
+  if strings.has_prefix(trimmed, "//") {
+    trimmed = strings.trim_space(trimmed[2:])
+  }
+
+  // remove #include keyword
+  if strings.has_prefix(trimmed, "#include") {
+    trimmed = strings.trim_space(trimmed[8:])
+  } else {
+    return ""
+  }
+
+  // Extract filename (support both quoted and unquoted filenames)
+  if strings.has_prefix(trimmed, "\"") && strings.has_suffix(trimmed, "\"") {
+    // quoted filename: #include "filename.chunk.frag"
+    return trimmed[1:len(trimmed)-1]
+  } else if len(trimmed) > 0 && !strings.contains(trimmed, " ") {
+    // unquoted filename: #include filename.chunk.frag
+    return trimmed
+  }
+
+  return ""
+}
+
+// load and preprocess shaders - handles flexible #include system for .chunk.frag files
 load_shader_with_preprocessing :: proc(sm: ^Shader_Manager, vertex_path: string, fragment_path: string) -> rl.Shader {
   // Load vertex shader content
   vertex_data, vertex_ok := sm.file_reader(vertex_path)
@@ -1021,25 +1124,11 @@ load_shader_with_preprocessing :: proc(sm: ^Shader_Manager, vertex_path: string,
   }
   defer delete(fragment_data)
 
-  // Load text system chunk
-  text_system_frag_path := "shaders/v100/text-system.frag"
-  when USE_WEBGL2 {
-    text_system_frag_path = "shaders/v300es/text-system.frag"
-  }
-  text_system_data, text_system_ok := sm.file_reader(text_system_frag_path)
-  if !text_system_ok {
-    log.errorf("Failed to read text-system.frag")
-    return rl.Shader{}
-  }
-  defer delete(text_system_data)
-
   // Convert to strings
   vertex_source := string(vertex_data)
   fragment_source := string(fragment_data)
-  text_system_source := string(text_system_data)
-
-  // Replace // #include text-system with actual content
-  processed_fragment, _ := strings.replace_all(fragment_source, "// #include text-system", text_system_source)
+  processed_fragment := process_shader_includes(sm, fragment_source, fragment_path)
+  defer if processed_fragment != fragment_source do delete(processed_fragment)
 
   // Convert to C strings for Raylib
   vertex_cstr := strings.clone_to_cstring(vertex_source)
