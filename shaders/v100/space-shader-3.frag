@@ -5,7 +5,9 @@ precision highp sampler2D;
 
 // common uniforms
 uniform float time;
+uniform float delta_time;
 uniform int frame;
+uniform float fps;
 uniform vec2 resolution;
 
 // shader textures
@@ -38,8 +40,10 @@ vec4 preventOptimizationToDebugUniformLoc(vec2 uv) {
   hack += texture2D(prgm2Texture, vec2(uv)) * optThreshold;
   hack += texture2D(prgm3Texture, vec2(uv)) * optThreshold;
   hack += texture2D(font_atlas, vec2(uv)) * optThreshold;
-  hack += vec4(float(frame) * optThreshold);
   hack += vec4(time * optThreshold);
+  hack += vec4(delta_time * optThreshold);
+  hack += vec4(float(frame) * optThreshold);
+  hack += vec4(fps * optThreshold);
   hack += vec4(resolution * optThreshold, 0.0, 0.0);
   hack += vec4(mouse * optThreshold, 0.0, 0.0);
   hack += vec4(mouselerp * optThreshold, 0.0, 0.0);
