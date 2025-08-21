@@ -480,6 +480,12 @@ build_debug :: proc() {
     copy_directory("shaders", fmt.tprintf("%s/shaders", OUT_DIR))
   }
 
+  // copy assets to debug directory
+  if os.is_dir("assets") {
+    print_info("Copying asset files...")
+    copy_directory("assets", fmt.tprintf("%s/assets", OUT_DIR))
+  }
+
   // build arguments matching PowerShell version
   build_args := []string{
     "build", SOURCE_DIR,
@@ -515,6 +521,12 @@ build_release :: proc() {
   if os.is_dir("shaders") {
     print_info("Copying shader files...")
     copy_directory("shaders", fmt.tprintf("%s/shaders", OUT_DIR))
+  }
+
+  // copy assets to release directory
+  if os.is_dir("assets") {
+    print_info("Copying asset files...")
+    copy_directory("assets", fmt.tprintf("%s/assets", OUT_DIR))
   }
 
   // build arguments matching PowerShell version
