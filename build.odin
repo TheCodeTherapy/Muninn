@@ -28,7 +28,7 @@ CYAN      :: ansi.CSI + ansi.FG_CYAN + ansi.SGR
 WHITE     :: ansi.CSI + ansi.FG_WHITE + ansi.SGR
 BOLD      :: ansi.CSI + ansi.BOLD + ansi.SGR
 
-GLOBAL_WASM_PARAMS :: "-sUSE_GLFW=3 -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sASSERTIONS -s ALLOW_MEMORY_GROWTH=1 -s MEMORY_GROWTH_LINEAR_STEP=64MB -s STACK_SIZE=4MB -s INITIAL_MEMORY=128MB -s MAXIMUM_MEMORY=512MB"
+GLOBAL_WASM_PARAMS :: "-sUSE_GLFW=3 -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sASSERTIONS -s ALLOW_MEMORY_GROWTH=1 -s MEMORY_GROWTH_LINEAR_STEP=32MB -s STACK_SIZE=2MB -s INITIAL_MEMORY=32MB -s MAXIMUM_MEMORY=128MB"
 
 // coloured output helpers with colors and simple text indicators
 print_info :: proc(msg: string) {
@@ -341,6 +341,19 @@ build_web_single :: proc(debug := false) {
   }
   defer delete(data_file_data)
 
+  // read icon file for favicon injection
+  print_info("Reading icon file...")
+  icon_data, icon_ok := os.read_entire_file("assets/tri.png")
+  icon_base64: string
+  defer if icon_ok do delete(icon_base64)
+
+  if icon_ok {
+    icon_base64 = base64.encode(icon_data)
+    defer delete(icon_data)
+  } else {
+    print_warning("Icon file not found: assets/tri.png - favicon will not be embedded")
+  }
+
   // convert to strings
   html := string(html_data)
   odin_js := string(odin_js_data)
@@ -356,6 +369,17 @@ build_web_single :: proc(debug := false) {
 
   // perform replacements
   print_info("Creating single-file HTML...")
+
+  // inject favicon after viewport meta tag
+  if icon_ok {
+    favicon_links := fmt.tprintf(`
+	<link rel="icon" type="image/png" href="data:image/png;base64,%s">
+	<meta name="theme-color" content="#000000">`, icon_base64)
+
+    html, _ = strings.replace_all(html,
+      `<meta name="viewport" content="width=device-width">`,
+      fmt.tprintf(`<meta name="viewport" content="width=device-width">%s`, favicon_links))
+  }
 
   // replace script tags
   html, _ = strings.replace_all(html, `<script type="text/javascript" src="odin.js"></script>`, fmt.tprintf("<script>%s</script>", odin_js))
@@ -682,6 +706,10 @@ build_web :: proc(debug := false) {
 
   // clean up temporary object file
   os.remove(game_obj)
+
+  // post-process HTML to inject favicon
+  print_info("Injecting favicon into HTML...")
+  inject_favicon_into_web_html(final_html)
 
   print_success("Complete WebAssembly build finished!")
   print_info(fmt.tprintf("Web game ready at: %s/index.html", OUT_DIR))
@@ -1404,4 +1432,50 @@ start_file_watcher :: proc(out_dir: string, pdbs_dir: string, source_dir: string
   }
 
   print_success("File watching stopped.")
+}
+
+// inject favicon into web HTML file
+inject_favicon_into_web_html :: proc(html_path: string) {
+  // read icon file
+  icon_data, icon_ok := os.read_entire_file("assets/tri.png")
+  if !icon_ok {
+    print_warning("Icon file not found: assets/tri.png - favicon will not be injected")
+    return
+  }
+  defer delete(icon_data)
+
+  // read HTML file
+  html_data, html_ok := os.read_entire_file(html_path)
+  if !html_ok {
+    print_error(fmt.tprintf("Failed to read HTML file: %s", html_path))
+    return
+  }
+  defer delete(html_data)
+
+  // encode icon to base64
+  icon_base64 := base64.encode(icon_data)
+  defer delete(icon_base64)
+
+  // inject favicon after viewport meta tag
+  html_content := string(html_data)
+  favicon_links := fmt.tprintf(`
+	<link rel="icon" type="image/png" href="data:image/png;base64,%s">
+	<meta name="theme-color" content="#000000">`, icon_base64)
+
+  modified_html, replaced := strings.replace_all(html_content,
+    `<meta name="viewport" content="width=device-width">`,
+    fmt.tprintf(`<meta name="viewport" content="width=device-width">%s`, favicon_links))
+
+  if !replaced {
+    print_warning("Could not find viewport meta tag to inject favicon")
+    return
+  }
+
+  // write back modified HTML
+  if !os.write_entire_file(html_path, transmute([]byte)modified_html) {
+    print_error(fmt.tprintf("Failed to write modified HTML file: %s", html_path))
+    return
+  }
+
+  print_success("Favicon injected successfully")
 }
