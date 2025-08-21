@@ -36,7 +36,7 @@ init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
 		velocity = rl.Vector2{0.0, 0.0},
 		rotation = 0.0,
 		acceleration = 500.0,
-		friction = 0.5,
+		friction = 0.39346,
 		shoot_cooldown = 0.0,
 		shoot_interval = 0.0125,
 		projectiles = [MAX_PROJECTILES]Projectile{},
@@ -126,9 +126,10 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 		ship.velocity.y += math.sin(radians) * ship.acceleration * delta_time
 	}
 
-	// apply friction
-	ship.velocity.x *= 1.0 - (ship.friction * delta_time)
-	ship.velocity.y *= 1.0 - (ship.friction * delta_time)
+	// apply friction (exponential decay - frame rate independent)
+	friction_factor := math.pow(1.0 - ship.friction, delta_time)
+	ship.velocity.x *= friction_factor
+	ship.velocity.y *= friction_factor
 
 	// update world position based on camera mode
 	if camera.mode == .FIXED_BOUNDS && camera.enable_wrapping {
