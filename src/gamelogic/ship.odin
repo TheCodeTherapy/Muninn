@@ -5,6 +5,10 @@ import rl "vendor:raylib"
 
 MAX_PROJECTILES :: 10000
 
+MAX_SHIP_SPEED :: 1000.0
+MAX_WARP_MULTIPLIER :: 2.5
+WARP_SPEED_THRESHOLD :: 997.0
+
 Projectile :: struct {
 	position: rl.Vector2,
 	velocity: rl.Vector2,
@@ -24,6 +28,8 @@ Ship :: struct {
 	shoot_cooldown: f32,
 	shoot_interval: f32,
 	projectiles:    [MAX_PROJECTILES]Projectile,
+	ship_speed:     f32,            // Current speed magnitude
+	warp_speed:     f32,            // Warp speed multiplier (1.0 to MAX_WARP_MULTIPLIER)
 }
 
 init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
@@ -40,6 +46,8 @@ init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
 		shoot_cooldown = 0.0,
 		shoot_interval = 0.0125,
 		projectiles = [MAX_PROJECTILES]Projectile{},
+		ship_speed = 0.0,
+		warp_speed = 1.0,
 	}
 }
 
@@ -131,6 +139,18 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 	ship.velocity.x *= friction_factor
 	ship.velocity.y *= friction_factor
 
+	// calculate ship speed from velocity magnitude
+	ship.ship_speed = math.sqrt(ship.velocity.x * ship.velocity.x + ship.velocity.y * ship.velocity.y)
+
+	// calculate warp speed multiplier based on ship speed
+	if ship.ship_speed >= WARP_SPEED_THRESHOLD && ship.ship_speed <= MAX_SHIP_SPEED {
+		ship.warp_speed = remap(ship.ship_speed, WARP_SPEED_THRESHOLD, MAX_SHIP_SPEED, 1.0, MAX_WARP_MULTIPLIER)
+	} else if ship.ship_speed > MAX_SHIP_SPEED {
+		ship.warp_speed = MAX_WARP_MULTIPLIER
+	} else {
+		ship.warp_speed = 1.0
+	}
+
 	// update world position based on camera mode
 	if camera.mode == .FIXED_BOUNDS && camera.enable_wrapping {
 		// In wrapping mode: update arena position, keep world position fixed at bounds center
@@ -151,8 +171,8 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 		}
 
 		// Normal exploration mode - world position tracks ship movement through space
-		ship.world_position.x += ship.velocity.x * delta_time
-		ship.world_position.y += ship.velocity.y * delta_time
+		ship.world_position.x += ship.velocity.x * ship.warp_speed * delta_time
+		ship.world_position.y += ship.velocity.y * ship.warp_speed * delta_time
 		// Keep arena position synced with world position in exploration
 		ship.arena_position = ship.world_position
 	}

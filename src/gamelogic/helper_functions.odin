@@ -48,3 +48,7 @@ direction_from_angle :: proc(angle_degrees: f32) -> rl.Vector2 {
   radians := angle_degrees * rl.DEG2RAD
   return {math.cos(radians), math.sin(radians)}
 }
+
+remap :: proc(value: f32, min_value: f32, max_value: f32, min_scaled_value: f32, max_scaled_value: f32) -> f32 {
+	return min_scaled_value + ((max_scaled_value - min_scaled_value) * (value - min_value)) / (max_value - min_value)
+}

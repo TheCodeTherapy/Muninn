@@ -268,17 +268,14 @@ update :: proc() {
 			math.sin(ship_radians),
 		}
 
-		// calculate ship speed from velocity magnitude
-		ship_speed := math.sqrt(g_state.ship.velocity.x * g_state.ship.velocity.x + g_state.ship.velocity.y * g_state.ship.velocity.y)
-
 		// set new thruster uniforms
 		shader_manager_set_uniform(&g_state.space_shaders, "ship_direction", ship_direction)
 		shader_manager_set_uniform(&g_state.space_shaders, "ship_velocity", g_state.ship.velocity)
-		warp_boost := math.clamp(ship_speed - 997.75, 0.0, 1000.0) * 1.2
+		warp_boost := math.clamp(g_state.ship.ship_speed - 997.75, 0.0, 1000.0) * 1.2
 		shader_manager_set_uniform(
 			&g_state.space_shaders,
 			"ship_speed",
-			ship_speed + warp_boost,
+			g_state.ship.ship_speed + warp_boost,
 		)
 
 		shader_manager_update(&g_state.space_shaders, delta_time)
