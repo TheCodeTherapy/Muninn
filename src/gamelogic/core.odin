@@ -89,7 +89,6 @@ init :: proc() {
 	space_shader_3_fragment_path := "shaders/v100/space-shader-3.frag"
 
 	when USE_WEBGL2 {
-		// WebGL2 requires shaders to be in the same directory as the executable
 		space_vertex_path = "shaders/v300es/default.vert"
 		space_shader_0_fragment_path = "shaders/v300es/space-shader-0.frag"
 		space_shader_1_fragment_path = "shaders/v300es/space-shader-1.frag"
@@ -97,7 +96,6 @@ init :: proc() {
 		space_shader_3_fragment_path = "shaders/v300es/space-shader-3.frag"
 	}
 
-	// initialize shader manager with shaders 0-3
 	space_shaders, shader_manager_initialized := shader_manager_init_from_paths(
 		"Space Shaders",
 		space_vertex_path,
@@ -109,7 +107,6 @@ init :: proc() {
 		},
 		i32(width), i32(height),
 		file_reader_func,
-		debug_ui_ctx,
 	)
 	// load font atlas texture
 	font_atlas_image := rl.LoadImage("assets/font_atlas.png")
@@ -212,7 +209,9 @@ update :: proc() {
 			render_debug_gui(ctx)
 			// render shader manager debug UI
 			if g_state.space_shaders.shader_count > 0 {
-				shader_manager_debug_ui(&g_state.space_shaders)
+				when #config(ODIN_DEBUG, false) {
+					shader_debug_render_ui(&g_state.space_shaders, g_state.debug_ui_ctx)
+				}
 			}
 			mu.end(ctx)
 		} else if rl.IsKeyPressed(.P) && g_state.debug_ui_ctx != nil {
@@ -279,6 +278,11 @@ update :: proc() {
 		)
 
 		shader_manager_update(&g_state.space_shaders, delta_time)
+
+		// update debug system (check for console logging triggers)
+		when #config(ODIN_DEBUG, false) {
+			shader_debug_update(&g_state.space_shaders)
+		}
 
 		// handle hot reload for shaders (F7 key)
 		// TODO: this is currently being done automatically by the build system. Not sure if I'll need this in the future

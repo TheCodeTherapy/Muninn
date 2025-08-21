@@ -3,6 +3,9 @@ package gamelogic
 import "core:fmt"
 import rl "vendor:raylib"
 
+// suppress unused import warning in release builds
+_ :: fmt
+
 PIXEL_WINDOW_HEIGHT :: 180
 
 // camera modes for different gameplay scenarios
