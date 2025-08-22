@@ -7,7 +7,7 @@ import mu "vendor:microui"
 // Feature flag: Use WebGL2 context and shaders (false = WebGL1, true = WebGL2)
 // WebGL2 has known vertex attribute issues with Raylib (GitHub issue #4330)
 // TODO: I should figure this shit out.
-USE_WEBGL2 :: false
+// Note: For now controlled via -define:USE_WEBGL2=true/false compiler flag
 
 // file reader function that will be set by the game package
 file_reader_func: proc(filename: string, allocator := context.allocator, loc := #caller_location) -> (data: []byte, success: bool)
@@ -88,7 +88,7 @@ init :: proc() {
 	space_shader_2_fragment_path := "shaders/v100/space-shader-2.frag"
 	space_shader_3_fragment_path := "shaders/v100/space-shader-3.frag"
 
-	when USE_WEBGL2 {
+	when #config(USE_WEBGL2, false) {
 		space_vertex_path = "shaders/v300es/default.vert"
 		space_shader_0_fragment_path = "shaders/v300es/space-shader-0.frag"
 		space_shader_1_fragment_path = "shaders/v300es/space-shader-1.frag"

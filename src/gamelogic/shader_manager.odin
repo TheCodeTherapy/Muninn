@@ -603,7 +603,7 @@ shader_manager_get_output_texture :: proc(sm: ^Shader_Manager) -> rl.Texture2D {
 // resolve shader path to correct version directory (v100 or v300es)
 resolve_shader_path :: proc(relative_path: string, allocator := context.allocator) -> string {
   base_path := "shaders/v100/"
-  when USE_WEBGL2 {
+  when #config(USE_WEBGL2, false) {
     base_path = "shaders/v300es/"
   }
   return fmt.aprintf("%s%s", base_path, relative_path, allocator = allocator)

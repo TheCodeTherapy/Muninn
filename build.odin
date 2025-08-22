@@ -15,7 +15,7 @@ import win "core:sys/windows"
 // Feature flag: Use WebGL2 context and shaders (false = WebGL1, true = WebGL2)
 // WebGL2 has known vertex attribute issues with Raylib (GitHub issue #4330)
 // TODO: I should figure this shit out.
-USE_WEBGL2 :: false
+// Note: Now controlled via -define:USE_WEBGL2=true/false compiler flag
 
 // ANSI color codes for coloured output using core:terminal/ansi
 RESET     :: ansi.CSI + ansi.RESET + ansi.SGR
@@ -179,6 +179,7 @@ main :: proc() {
   run_after := false
   build_only := false
   debug := false
+  webgl2 := false
 
   for i in 2..<len(os.args) {
     switch os.args[i] {
@@ -190,8 +191,13 @@ main :: proc() {
       build_only = true
     case "--debug":
       debug = true
+    case "--webgl2":
+      webgl2 = true
     }
   }
+
+  // debug output for argument parsing
+  print_info(fmt.tprintf("Parsed arguments: debug=%v, webgl2=%v", debug, webgl2))
 
   switch command {
     case "hot-reload":
@@ -201,9 +207,9 @@ main :: proc() {
     case "release":
       build_release()
     case "web":
-      build_web(debug)
+      build_web(debug, webgl2)
     case "web-single":
-      build_web_single(debug)
+      build_web_single(debug, webgl2)
     case "help", "--help":
       print_usage()
     case:
@@ -217,16 +223,16 @@ print_usage :: proc() {
   print_info("  build hot-reload [--watch] [--run] [--build-only]")
   print_info("  build debug")
   print_info("  build release")
-  print_info("  build web [--debug]")
-  print_info("  build web-single [--debug]")
+  print_info("  build web [--debug] [--webgl2]")
+  print_info("  build web-single [--debug] [--webgl2]")
   print_info("  build help")
   print_info("")
   print_info("Commands:")
   print_info("  hot-reload   Build with hot-reload support and file watching")
   print_info("  debug        Build debug executable with debug symbols")
   print_info("  release      Build optimized release executable")
-  print_info("  web          Build WebAssembly version (build/web or build/web_debug)")
-  print_info("  web-single   Create single-file WebAssembly build (build/web_single or build/web_single_debug)")
+  print_info("  web          Build WebAssembly version + auto-create single-file version")
+  print_info("  web-single   Create single-file WebAssembly build only (requires existing web build)")
   print_info("")
   print_info("Hot-reload flags:")
   print_info("  --watch      Watch files and rebuild on changes (default)")
@@ -235,6 +241,17 @@ print_usage :: proc() {
   print_info("")
   print_info("Web build flags:")
   print_info("  --debug      Enable ODIN_DEBUG for web builds (uses separate debug directories)")
+  print_info("  --webgl2     Use WebGL2 context and #version 300 es shaders (experimental)")
+}
+
+create_directory_recursive :: proc(path: string) -> bool {
+  // use the official Odin os2.make_directory_all function
+  err := os2.make_directory_all(path, 0o755)
+  if err != nil && err != .Exist {
+    print_error(fmt.tprintf("Failed to create directory: %s (error: %v)", path, err))
+    return false
+  }
+  return true
 }
 
 // copy a directory and its contents
@@ -286,21 +303,28 @@ copy_directory :: proc(src_dir: string, dst_dir: string) -> bool {
   return true
 }
 
-build_web_single :: proc(debug := false) {
+build_web_single :: proc(debug := false, webgl2 := false) {
   print_info("Building web single-file version...")
 
-  // check if web build exists - look in the appropriate directory based on debug flag
-  web_dir := debug ? "build/web_debug" : "build/web"
+  // check if web build exists - use clean directory structure
+  webgl_version := webgl2 ? "webgl2" : "webgl1"
+  build_type := debug ? "debug" : "release"
+  web_dir := fmt.tprintf("build/web/%s/%s", webgl_version, build_type)
   if !os.is_dir(web_dir) {
     print_error(fmt.tprintf("Web build directory not found: %s", web_dir))
     debug_suffix := debug ? " --debug" : ""
-    print_info(fmt.tprintf("Run web build first: ./build.exe web%s", debug_suffix))
+    webgl2_suffix := webgl2 ? " --webgl2" : ""
+    print_info(fmt.tprintf("Run web build first: ./build.exe web%s%s", debug_suffix, webgl2_suffix))
     return
   }
 
-  // create output directory - use different directory based on debug flag
-  output_dir := debug ? "build/web_single_debug" : "build/web_single"
-  os.make_directory(output_dir)
+  // create output directory - use clean directory structure: build/web/{webgl1|webgl2}/single_{release|debug}
+  single_type := debug ? "single_debug" : "single_release"
+  output_dir := fmt.tprintf("build/web/%s/%s", webgl_version, single_type)
+  if !create_directory_recursive(output_dir) {
+    print_error(fmt.tprintf("Failed to create output directory: %s", output_dir))
+    return
+  }
 
   // read source files
   print_info("Reading source files...")
@@ -417,8 +441,9 @@ build_web_single :: proc(debug := false) {
 
   print_success("Single-file HTML created successfully!")
   print_info(fmt.tprintf("Output: %s", output_path))
+  print_info(fmt.tprintf("WebGL version: %s, Build type: %s", webgl_version, single_type))
   print_info(fmt.tprintf("Size: %d bytes (~ %d MB)", len(html), len(html)/1024/1024))
-  print_success("Build completed!")
+  print_success("Single-file build completed!")
 }
 
 build_hot_reload :: proc(watch: bool, run_after: bool, build_only: bool) {
@@ -549,11 +574,23 @@ build_release :: proc() {
 }
 
 // web build function - creates WebAssembly build with complete EMSDK management
-build_web :: proc(debug := false) {
-  print_info("Building WebAssembly version...")
+build_web :: proc(debug := false, webgl2 := false) {
+  if webgl2 {
+    print_info("Building WebAssembly version with WebGL2...")
+  } else {
+    print_info("Building WebAssembly version with WebGL1...")
+  }
 
-  // configuration - use different directories based on debug flag
-  OUT_DIR := debug ? "build/web_debug" : "build/web"
+  if debug {
+    print_info("Debug mode: ENABLED (MicroUI debug panel will be available)")
+  } else {
+    print_info("Debug mode: DISABLED (no debug panel)")
+  }
+
+  // configuration - use clean directory structure: build/web/{webgl1|webgl2}/{release|debug}
+  webgl_version := webgl2 ? "webgl2" : "webgl1"
+  build_type := debug ? "debug" : "release"
+  OUT_DIR := fmt.tprintf("build/web/%s/%s", webgl_version, build_type)
   SOURCE_DIR := "src/main_web"
   ASSETS_DIR := "assets"
 
@@ -577,9 +614,13 @@ build_web :: proc(debug := false) {
     return
   }
 
-  // create output directory
+  // create output directory (including parent directories)
   if !os.is_dir(OUT_DIR) {
-    os.make_directory(OUT_DIR)
+    // create all parent directories recursively
+    if !create_directory_recursive(OUT_DIR) {
+      print_error(fmt.tprintf("Failed to create output directory: %s", OUT_DIR))
+      return
+    }
   } else {
     print_info("Output directory exists - files will be overwritten")
   }
@@ -593,12 +634,29 @@ build_web :: proc(debug := false) {
   append(&build_args, "build", SOURCE_DIR)
   append(&build_args, "-target:js_wasm32", "-build-mode:obj")
   append(&build_args, "-define:RAYLIB_WASM_LIB=env.o", "-define:RAYGUI_WASM_LIB=env.o")
+
+  // add WebGL2 define based on parameter
+  if webgl2 {
+    append(&build_args, "-define:USE_WEBGL2=true")
+  } else {
+    append(&build_args, "-define:USE_WEBGL2=false")
+  }
+
   append(&build_args, "-vet", "-strict-style")
   append(&build_args, fmt.tprintf("-out:%s/game.wasm.o", OUT_DIR))
 
   // add debug define if requested
   if debug {
     append(&build_args, "-define:ODIN_DEBUG=true")
+  } else {
+    append(&build_args, "-define:ODIN_DEBUG=false")
+  }
+
+  // force clean rebuild by removing any existing object file
+  game_obj_path := fmt.tprintf("%s/game.wasm.o", OUT_DIR)
+  if os.exists(game_obj_path) {
+    os.remove(game_obj_path)
+    print_info("Removed existing object file to ensure clean build")
   }
 
   if !run_command("odin", build_args[:]) {
@@ -664,7 +722,7 @@ build_web :: proc(debug := false) {
     unix_assets_dir := windows_to_unix_path(ASSETS_DIR)
 
     emsdk_env_script = fmt.tprintf("source %s/emsdk_env.sh", unix_emsdk_dir)
-    when USE_WEBGL2 {
+    if webgl2 {
       emcc_cmd = fmt.tprintf("emcc -o %s %s %s %s %s -s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 --shell-file %s --preload-file %s --preload-file shaders",
         unix_final_html, unix_game_obj, unix_raylib_a, unix_raygui_a, GLOBAL_WASM_PARAMS, unix_shell_file, unix_assets_dir)
     } else {
@@ -678,7 +736,7 @@ build_web :: proc(debug := false) {
   case "powershell":
     // PowerShell environment: use .ps1 scripts
     emsdk_env_script = fmt.tprintf("& '%s/emsdk_env.ps1'", EMSDK_DIR)
-    when USE_WEBGL2 {
+    if webgl2 {
       emcc_cmd = fmt.tprintf("emcc -o %s %s %s %s %s -s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 --shell-file %s --preload-file %s --preload-file shaders",
         final_html, game_obj, raylib_a, raygui_a, GLOBAL_WASM_PARAMS, shell_file, ASSETS_DIR)
     } else {
@@ -692,7 +750,7 @@ build_web :: proc(debug := false) {
   case:
     // Windows Command Prompt: use .bat scripts
     emsdk_env_script = fmt.tprintf("%s/emsdk_env.bat", EMSDK_DIR)
-    when USE_WEBGL2 {
+    if webgl2 {
       emcc_cmd = fmt.tprintf("emcc -o %s %s %s %s %s -s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 --shell-file %s --preload-file %s --preload-file shaders",
         final_html, game_obj, raylib_a, raygui_a, GLOBAL_WASM_PARAMS, shell_file, ASSETS_DIR)
     } else {
@@ -725,7 +783,12 @@ build_web :: proc(debug := false) {
 
   print_success("Complete WebAssembly build finished!")
   print_info(fmt.tprintf("Web game ready at: %s/index.html", OUT_DIR))
+  print_info(fmt.tprintf("WebGL version: %s, Build type: %s", webgl_version, build_type))
   print_info("To test, serve files with: python -m http.server 8000 (from the build directory)")
+
+  // automatically build single-file version as well
+  print_info("Building single-file version...")
+  build_web_single(debug, webgl2)
 }
 
 // initialize EMSDK - complete installation and setup
