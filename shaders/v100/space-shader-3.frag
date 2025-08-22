@@ -32,6 +32,7 @@ uniform float ship_speed;
 varying vec2 fragTexCoord;
 
 #include chunks/prevent-optimization.chunk.frag
+#include chunks/thruster-dist.chunk.frag
 
 void main() {
   vec2 uv = fragTexCoord;
@@ -43,16 +44,17 @@ void main() {
   float p12 = texture2D(prgm1Texture, uv + e.zy).x;
   vec3 grad = normalize(vec3(p21 - p01, p12 - p10, 1.0));
 
-  grad *= 0.2;
+  grad *= 0.3;
 
   vec4 c = texture2D(prgm0Texture, uv + grad.xy);
-  vec3 light = normalize(vec3(0.2, -0.5, 0.7));
+  vec3 light = normalize(vec3(0.0, 0.5, 0.7));
   float diffuse = dot(grad, light);
   float ref = -reflect(light, grad).z;
   float refMixMap = clamp(-ref, 0.0, 0.5);
-  refMixMap = refMixMap * refMixMap * refMixMap * refMixMap * refMixMap;
-  float spec = pow(abs(max(-1.0, ref)), 10.0) * 2.0;
-  vec4 col = c + vec4(mix(spec * spec, spec, refMixMap));
+  refMixMap = refMixMap * refMixMap;
+  float spec = pow(abs(max(-1.0, ref)), 20.0) * 3.0;
+  float spec_map = remap(ship_speed, 0.0, 1000.0, 1.0, 2.5);
+  vec4 col = c + vec4(spec * spec_map);
   col = clamp(col, 0.005, 1.0);
   vec4 result = vec4(col.rgb, 1.0);
 

@@ -36,6 +36,7 @@ varying vec2 fragTexCoord;
 
 void main() {
   vec2 uv = fragTexCoord;
+  vec2 ouv = uv;
   vec2 mp = ((mouselerp + 1.0) * 0.5) * resolution;
   vec3 e = vec3(vec2(1.0) / resolution.xy, 0.0);
   vec2 q = uv;
@@ -52,10 +53,14 @@ void main() {
   d = thrustersDist(uv);
 
   d += -(p11 - 0.5) * 2.0 + (p10 + p01 + p21 + p12 - 2.0);
-  // frame-rate independent exponential damping
-  d *= pow(0.999, delta_time * 120.0) * ship_speed / 996.012;
+  d *= pow(0.9965, delta_time * 120.0) * max(ship_speed / 995.0, 0.9965);
   d *= max(min(1.0, float(frame)), 0.0) * clamp(time - 1.0, 0.0, 1.0);
   d = d * 0.5 + 0.5;
+
+  ouv *=  1.0 - ouv.yx;
+  float vig = ouv.x * ouv.y * 20.0;
+  vig = clamp(pow(vig, 0.125), 0.0, 1.0);
+  d = mix(d, d * vig, 0.1);
 
   vec4 result = vec4(d, 0.0, 0.0, 1.0);
 

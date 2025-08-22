@@ -1,3 +1,5 @@
+const float PI = acos(-1.0);
+
 float sdHyperbola(vec2 p, float k, float wi) {
   vec2 op = p;
   p = abs(p);
@@ -17,9 +19,27 @@ float remap(float value, float minValue, float maxValue, float minScaledValue, f
   );
 }
 
+float cro(vec2 a, vec2 b) { return a.x * b.y - a.y * b.x; }
+
+float sdUnevenCapsuleY(vec2 p, float ra, float rb, float h) {
+  p.x = abs(p.x);
+  float b = (ra - rb) / h;
+  vec2  c = vec2(sqrt(1.0 - b * b), b);
+  float k = cro(c, p);
+  float m = dot(c, p);
+  float n = dot(p, p);
+  if (k < 0.0) return sqrt(n) - ra;
+  else if (k > c.x * h) return sqrt(n+h*h-2.0*h*p.y) - rb;
+  return m - ra;
+}
+
+vec2 rotate(vec2 uv, float a) {
+  return vec2(uv.x * cos(a) - uv.y * sin(a), uv.x * sin(a) + uv.y * cos(a));
+}
+
 float thrustersDist(vec2 uv) {
   const float distribution = 0.05;
-  const float speed = 0.1;
+  const float speed = 0.25;
   const float overdraw = 5.0;
   const float shapeK = 0.25;
   float size = 1.7;
@@ -38,14 +58,21 @@ float thrustersDist(vec2 uv) {
     relative_pos.x * sin_a + relative_pos.y * cos_a
   );
 
-  float speed_map = remap(ship_speed, 0.0, 1000.0, 20.0, 5.0);
-  float offset_map = remap(ship_speed, 0.0, 1000.0, 0.0, 70.0);
-  float alpha_map = remap(ship_speed, 0.0, 2000.0, 0.0, 1.0) * 2.0;
+  float speed_map = remap(ship_speed, 0.0, 1000.0, 30.0, 15.0);
+  float offset_map = remap(ship_speed, 0.0, 1000.0, -40.0, 20.0);
+  float alpha_map = remap(ship_speed, 0.0, 1000.0, 0.0, 1.0);
+
+  float mult_map = remap(ship_speed, 0.0, 1000.0, 1.0, 2.5);
+  float height = 3.0 * mult_map;
+  float r1_map = remap(ship_speed, 0.0, 1000.0, 0.01, 0.1);
+  float r2_map = remap(ship_speed, 0.0, 1000.0, 0.05, 1.5);
   uv = (rotated_pos - vec2(offset_map, 0.0)) / resolution.y * speed_map;
   float r = -(uv.x * uv.x + uv.y * uv.y);
   float z = 0.5 + 0.5 * sin((r + time * speed) / distribution);
   float a = clamp(smoothstep(-0.1, 0.2, size - length(uv * 2.0)), 0.0, 0.5);
-  float h = clamp(sdHyperbola(uv, shapeK, 1.0), 0.0, 1.0) * overdraw;
+  float shape = sdHyperbola(uv, shapeK, 1.0);
+  shape = -sdUnevenCapsuleY(rotate(uv, -PI * 0.5), r1_map, r2_map, height);
+  float h = clamp(shape, 0.0, 1.0) * overdraw;
   float alpha = clamp(a * h, 0.0, 1.0) * alpha_map;
   return z * alpha;
 }

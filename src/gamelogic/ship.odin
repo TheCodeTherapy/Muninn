@@ -6,7 +6,7 @@ import rl "vendor:raylib"
 MAX_PROJECTILES :: 10000
 
 MAX_SHIP_SPEED :: 1000.0
-MAX_WARP_MULTIPLIER :: 2.5
+MAX_WARP_MULTIPLIER :: 3.0
 WARP_SPEED_THRESHOLD :: 997.0
 
 Projectile :: struct {

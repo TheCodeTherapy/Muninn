@@ -31,8 +31,6 @@ uniform float ship_speed;
 
 varying vec2 fragTexCoord;
 
-const float PI = acos(-1.0);
-
 #include chunks/prevent-optimization.chunk.frag
 #include chunks/thruster-dist.chunk.frag
 
@@ -242,8 +240,6 @@ void main() {
   // nebula effect with color - moves at background depth (same as furthest stars)
   vec3 nebulaColor = generateNebulaColor(uv * 3.0, parallax_offset) * 3.0;
 
-  // nebulaColor = nebulaColor * (fragTexCoord.y - 0.25);
-
   // combine nebula and starfield
   vec3 color = nebulaColor * 3.5 + stars * stars * starsLumance;
   float nebulaLuminance = dot(nebulaColor, vec3(0.299, 0.587, 0.114));
@@ -254,8 +250,9 @@ void main() {
 
   gl_FragColor = result;
 
+  // debug thrusters
   // float thrusters = thrustersDist(uv);
-  // gl_FragColor += vec4(thrusters);
+  // gl_FragColor += vec4(thrusters) * 0.21;
 
   const bool debug = false;
 
