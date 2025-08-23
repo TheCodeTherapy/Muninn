@@ -16,8 +16,10 @@ It focuses on **fast iteration, simple builds, and frictionless distribution**, 
 - [x] Basic game example;
 - [x] Independent post-processing effects;
 - [x] A multi-pass shader manager to facilitate starting projects with multi-pass shaders;
+- [x] A shader-chunk system so you can conveniently inject/re-use shader chunks with `#include`;
 - [x] WebAssembly builds so we can run the games in browsers too;
 - [x] Single-File WebAssembly build philosophy (more on that below);
+- [x] Cool-looking WASM-compatible Debug UI using MicroUI;
 - [ ] Gamepad support (soon™️);
 - [ ] Mobile touch controls and virtual joysticks (soon™️);
 - [ ] Sound system with procedurally generated, parameterizable sound effects (soon™️).
