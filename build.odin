@@ -503,11 +503,19 @@ build_debug :: proc() {
   // configuration
   OUT_DIR := "build/debug"
   SOURCE_DIR := "src/main_release"
-  EXE_NAME := "game_debug.exe"
+  EXE_NAME: string
+  when ODIN_OS == .Windows {
+    EXE_NAME = "game_debug.exe"
+  } else {
+    EXE_NAME = "game_debug"
+  }
   EXE_PATH := fmt.tprintf("%s/%s", OUT_DIR, EXE_NAME)
 
   // create output directory
-  os.make_directory(OUT_DIR)
+  if !create_directory_recursive(OUT_DIR) {
+    print_error(fmt.tprintf("Failed to create output directory: %s", OUT_DIR))
+    return
+  }
 
   // copy shaders to debug directory
   if os.is_dir("shaders") {
@@ -551,11 +559,19 @@ build_release :: proc() {
   // configuration
   OUT_DIR := "build/release"
   SOURCE_DIR := "src/main_release"
-  EXE_NAME := "game_release.exe"
+  EXE_NAME: string
+  when ODIN_OS == .Windows {
+    EXE_NAME = "game_release.exe"
+  } else {
+    EXE_NAME = "game_release"
+  }
   EXE_PATH := fmt.tprintf("%s/%s", OUT_DIR, EXE_NAME)
 
   // create output directory
-  os.make_directory(OUT_DIR)
+  if !create_directory_recursive(OUT_DIR) {
+    print_error(fmt.tprintf("Failed to create output directory: %s", OUT_DIR))
+    return
+  }
 
   // copy shaders to release directory
   if os.is_dir("shaders") {
@@ -569,17 +585,23 @@ build_release :: proc() {
     copy_directory("assets", fmt.tprintf("%s/assets", OUT_DIR))
   }
 
-  // build arguments matching PowerShell version
-  build_args := []string{
-    "build", SOURCE_DIR,
-    "-strict-style", "-vet",
-    "-no-bounds-check", "-o:speed",
-    "-subsystem:windows",
-    fmt.tprintf("-out:%s", EXE_PATH),
+  // build arguments
+  build_args := make([dynamic]string)
+  defer delete(build_args)
+
+  append(&build_args, "build", SOURCE_DIR)
+  append(&build_args, "-strict-style", "-vet")
+  append(&build_args, "-no-bounds-check", "-o:speed")
+
+  // Windows-specific subsystem flag
+  when ODIN_OS == .Windows {
+    append(&build_args, "-subsystem:windows")
   }
 
+  append(&build_args, fmt.tprintf("-out:%s", EXE_PATH))
+
   print_info("Compiling optimized release build...")
-  if !run_command("odin", build_args) {
+  if !run_command("odin", build_args[:]) {
     print_error("Release build failed!")
     return
   }
@@ -1170,10 +1192,18 @@ build_game_dll :: proc(out_dir: string, pdbs_dir: string, source_dir: string, is
     os.remove(new_path)
   }
 
-  rename_ok := os.rename(old_path, new_path)
-  if rename_ok != os.ERROR_NONE {
-    print_error("Failed to move DLL to final location")
-    return false
+  when ODIN_OS == .Darwin {
+    rename_ok := os.rename(old_path, new_path)
+    if !rename_ok {
+      print_error("Failed to move DLL to final location")
+      return false
+    }
+  } else {
+    rename_err := os.rename(old_path, new_path)
+    if rename_err != nil {
+      print_error("Failed to move DLL to final location")
+      return false
+    }
   }
 
   if is_watch_mode {

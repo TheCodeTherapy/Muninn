@@ -1,0 +1,395 @@
+name: Build All Targets and Deploy
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-native:
+    name: Build Native (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-15, windows-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+            exe_suffix: ""
+          - os: macos-13
+            platform: macos
+            arch: amd64
+            exe_suffix: ""
+          - os: macos-15
+            platform: macos
+            arch: arm64
+            exe_suffix: ""
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+            exe_suffix: ".exe"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Odin
+      uses: laytan/setup-odin@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        release: false
+
+    - name: Build build system
+      run: |
+        odin build build.odin -file -out:build_exe${{ matrix.exe_suffix }}
+
+    - name: Build debug target
+      run: |
+        ./build_exe${{ matrix.exe_suffix }} debug
+
+    - name: Build release target
+      run: |
+        ./build_exe${{ matrix.exe_suffix }} release
+
+    - name: Upload debug artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-${{ matrix.platform }}-${{ matrix.arch }}
+        path: build/debug/
+        retention-days: 30
+
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-${{ matrix.platform }}-${{ matrix.arch }}
+        path: build/release/
+        retention-days: 30
+
+  build-web:
+    name: Build Web Targets
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Odin
+      uses: laytan/setup-odin@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        release: false
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git build-essential cmake
+
+    - name: Build build system
+      run: |
+        odin build build.odin -file -out:build_exe
+
+    - name: Build web targets
+      run: |
+        # Build all 4 web variants
+        ./build_exe web
+        ./build_exe web --webgl2
+        ./build_exe web --debug
+        ./build_exe web --debug --webgl2
+
+    - name: Create web deployment structure
+      run: |
+        mkdir -p web-deploy
+
+        # Copy all web builds to deployment directory
+        cp -r build/web/webgl1/release web-deploy/webgl1-release
+        cp -r build/web/webgl2/release web-deploy/webgl2-release
+        cp -r build/web/webgl1/debug web-deploy/webgl1-debug
+        cp -r build/web/webgl2/debug web-deploy/webgl2-debug
+
+        # Copy single-file builds
+        cp -r build/web/webgl1/single_release web-deploy/webgl1-single-release
+        cp -r build/web/webgl2/single_release web-deploy/webgl2-single-release
+        cp -r build/web/webgl1/single_debug web-deploy/webgl1-single-debug
+        cp -r build/web/webgl2/single_debug web-deploy/webgl2-single-debug
+
+    - name: Create index page
+      run: |
+        cat > web-deploy/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Muninn - Web Builds</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    padding: 2rem;
+                    background: #0d1117;
+                    color: #e6edf3;
+                    line-height: 1.6;
+                }
+                h1 {
+                    color: #58a6ff;
+                    text-align: center;
+                    margin-bottom: 2rem;
+                }
+                .builds-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    gap: 1.5rem;
+                    margin-bottom: 3rem;
+                }
+                .build-card {
+                    background: #161b22;
+                    border: 1px solid #30363d;
+                    border-radius: 8px;
+                    padding: 1.5rem;
+                    transition: border-color 0.2s;
+                }
+                .build-card:hover {
+                    border-color: #58a6ff;
+                }
+                .build-title {
+                    color: #58a6ff;
+                    font-size: 1.2rem;
+                    font-weight: 600;
+                    margin-bottom: 0.5rem;
+                }
+                .build-description {
+                    color: #8b949e;
+                    margin-bottom: 1rem;
+                    font-size: 0.9rem;
+                }
+                .build-links {
+                    display: flex;
+                    gap: 0.5rem;
+                    flex-wrap: wrap;
+                }
+                .build-link {
+                    display: inline-block;
+                    padding: 0.5rem 1rem;
+                    background: #238636;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 6px;
+                    font-size: 0.9rem;
+                    transition: background-color 0.2s;
+                }
+                .build-link:hover {
+                    background: #2ea043;
+                }
+                .build-link.single {
+                    background: #1f6feb;
+                }
+                .build-link.single:hover {
+                    background: #388bfd;
+                }
+                .info-section {
+                    background: #161b22;
+                    border: 1px solid #30363d;
+                    border-radius: 8px;
+                    padding: 1.5rem;
+                    margin-bottom: 2rem;
+                }
+                .info-section h2 {
+                    color: #58a6ff;
+                    margin-top: 0;
+                }
+                          .badge {
+              display: inline-block;
+              padding: 0.2rem 0.5rem;
+              background: #da3633;
+              color: white;
+              border-radius: 4px;
+              font-size: 0.8rem;
+              margin-left: 0.5rem;
+          }
+          .badge.debug {
+              background: #fb8500;
+          }
+          .badge.webgl1 {
+              background: #00bfff;
+          }
+          .badge.webgl2 {
+              background: #ff6600;
+          }
+          .download-card {
+              background: #0d1117;
+              border: 2px solid #58a6ff;
+              border-radius: 8px;
+              padding: 1.5rem;
+              text-align: center;
+              grid-column: 1 / -1;
+              margin-top: 2rem;
+          }
+          .download-card .build-title {
+              font-size: 1.4rem;
+              margin-bottom: 1rem;
+          }
+          .download-card .build-links {
+              display: flex;
+              justify-content: center;
+          }
+          .download-card .build-link {
+              background: #58a6ff;
+              font-size: 1.1rem;
+              padding: 0.75rem 2rem;
+          }
+          .download-card .build-link:hover {
+              background: #388bfd;
+          }
+                .footer {
+                    text-align: center;
+                    color: #8b949e;
+                    margin-top: 3rem;
+                    padding-top: 2rem;
+                    border-top: 1px solid #30363d;
+                }
+                .footer a {
+                    color: #58a6ff;
+                    text-decoration: none;
+                }
+                .footer a:hover {
+                    text-decoration: underline;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>🎮 Muninn - Web Builds</h1>
+
+            <div class="info-section">
+                <h2>📋 Available Builds</h2>
+                <p>This page provides access to all WebAssembly builds of Muninn. Each build variant uses different WebGL versions and build configurations:</p>
+                <ul>
+                    <li><strong>WebGL1</strong> - Uses #version 100 shaders</li>
+                    <li><strong>WebGL2</strong> - Uses #version 300 es shaders</li>
+                    <li><strong>Release</strong> - Standard build configuration</li>
+                    <li><strong>Debug</strong> - Includes debug UI and logging</li>
+                    <li><strong>Multi-file</strong> - Requires web server to run</li>
+                    <li><strong>Single-file</strong> - Self-contained, can be opened directly in a browser, even locally on your machine</li>
+                </ul>
+            </div>
+
+            <div class="builds-grid">
+                <div class="build-card">
+                    <div class="build-title">WebGL1 Debug <span class="badge webgl1">WEBGL1</span> <span class="badge debug">DEBUG</span></div>
+                    <div class="build-description">
+                        Web build with WebGL1 and debug features. Uses #version 100 shaders.
+                    </div>
+                    <div class="build-links">
+                        <a href="webgl1-debug/index.html" class="build-link">Play Online</a>
+                    </div>
+                </div>
+
+                <div class="build-card">
+                    <div class="build-title">WebGL1 Release <span class="badge webgl1">WEBGL1</span></div>
+                    <div class="build-description">
+                        Web build with WebGL1. Uses #version 100 shaders.
+                    </div>
+                    <div class="build-links">
+                        <a href="webgl1-release/index.html" class="build-link">Play Online</a>
+                    </div>
+                </div>
+
+                <div class="build-card">
+                    <div class="build-title">WebGL2 Debug <span class="badge webgl2">WEBGL2</span> <span class="badge debug">DEBUG</span></div>
+                    <div class="build-description">
+                        Web build with WebGL2 and debug features. Uses #version 300 es shaders.
+                    </div>
+                    <div class="build-links">
+                        <a href="webgl2-debug/index.html" class="build-link">Play Online</a>
+                    </div>
+                </div>
+
+                <div class="build-card">
+                    <div class="build-title">WebGL2 Release <span class="badge webgl2">WEBGL2</span></div>
+                    <div class="build-description">
+                        Web build with WebGL2. Uses #version 300 es shaders.
+                    </div>
+                    <div class="build-links">
+                        <a href="webgl2-release/index.html" class="build-link">Play Online</a>
+                    </div>
+                </div>
+
+                <div class="download-card">
+                    <div class="build-title">📦 Download WASM Builds</div>
+                    <div class="build-description">
+                        Download all web builds including single-file versions. Contains both multi-file and standalone HTML WebAssembly builds for all variants.
+                    </div>
+                    <div class="build-links">
+                        <a href="https://nightly.link/{{GITHUB_REPOSITORY}}/workflows/build-and-deploy/master/web-builds.zip" class="build-link">Download Latest WASM Builds</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-section">
+                <h2>ℹ️ Usage Notes</h2>
+                <ul>
+                    <li><strong>Play Online</strong> links launch the game directly in your browser</li>
+                    <li><strong>Download Web Builds</strong> provides access to all build artifacts including single-file versions</li>
+                    <li>WebGL2 builds may show console warnings on some systems (known issue)</li>
+                    <li>Debug builds include additional UI elements and performance information</li>
+                </ul>
+            </div>
+
+            <div class="footer">
+                <p>Built with <a href="https://odin-lang.org/">Odin</a> and <a href="https://www.raylib.com/">Raylib</a> by <a href="https://x.com/TheCodeTherapy">TheCodeTherapy</a></p>
+                <p>Auto-generated from GitHub Actions • <a href="https://github.com/{{GITHUB_REPOSITORY}}">View Source Code</a></p>
+            </div>
+        </body>
+        </html>
+        EOF
+
+        # Replace GitHub repository placeholder
+        sed -i "s|{{GITHUB_REPOSITORY}}|$GITHUB_REPOSITORY|g" web-deploy/index.html
+
+    - name: Upload web artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: web-builds
+        path: web-deploy/
+        retention-days: 30
+
+    - name: Upload pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: web-deploy/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-web
+
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
