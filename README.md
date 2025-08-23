@@ -5,22 +5,27 @@
 **Muninn** is a minimal boilerplate for making games with Odin and Raylib, targeting both native and WebAssembly.
 It focuses on **fast iteration, simple builds, and frictionless distribution**, making it perfect for teaching gamedev or rapid prototyping.
 
+## Try it Live!
+
+- [https://thecodetherapy.github.io/Muninn/](https://thecodetherapy.github.io/Muninn/)
+
 ## Features
 
-- Using Odin itself as our build system (because Odin is fucking awesome);
-
-- Providing a frictionless hot-reload approach so we can just save the code and see the changes immediately;
-
-- A basic game example that includes layered rendering, independent post-processing effects, and a multi-pass shader manager to facilitate starting a new project;
-
-- Offer a WebAssembly build so we can run the games on browsers too;
-
-- Offer a single-file WebAssembly build philosophy (more on that below);
+- [x] Using Odin itself as our build system (because Odin is fucking awesome);
+- [x] Frictionless hot-reload so we can just save the code and see the changes immediately;
+- [x] Basic game example;
+- [x] Independent post-processing effects;
+- [x] A multi-pass shader manager to facilitate starting projects with multi-pass shaders;
+- [x] WebAssembly builds so we can run the games in browsers too;
+- [x] Single-File WebAssembly build philosophy (more on that below);
+- [ ] Gamepad support (soon™️);
+- [ ] Mobile touch controls and virtual joysticks (soon™️);
+- [ ] Sound system with procedurally generated, parameterizable sound effects (soon™️).
 
 > #### 🔥 Hot-reload on save
 > Instead of having to manually run the hot-reload build scripts (or triggering build commands through key bindings) after saving changes to your code, I've chosen to implement a minimal logic that monitors the source files and triggers the hot-reload build automatically once any changes are detected to any of the source files.
 >
-> #### 📦 Single-file WebAssembly build philosophy
+> #### 📦 Single-File WebAssembly build philosophy
 > For the WebAssembly single-file builds, I've chosen to allow for some overhead in terms of bundle size to obtain the advantage of generating a single self-contained HTML file with everything that is necessary to run the game (including the compiled WASM file and all the assets as base64 strings in the script tag, which is inlined to the single HTML file).
 >
 > That, IMHO, offers the convenience of running the game just by opening the HTML file locally in a web browser (just by double-clicking the file on your file manager), without the need to serve the files through a web server to comply with browser policies that would prevent loading the needed files directly from the disk.
