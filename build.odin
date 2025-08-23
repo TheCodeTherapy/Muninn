@@ -449,6 +449,11 @@ build_web_single :: proc(debug := false, webgl2 := false) {
 build_hot_reload :: proc(watch: bool, run_after: bool, build_only: bool) {
   print_info("Building hot-reload version...")
 
+  if !copy_raylib_dll() {
+    print_error("Failed to ensure raylib.dll is available")
+    return
+  }
+
   // config
   OUT_DIR := "build/hot_reload"
   GAME_PDBS_DIR := fmt.tprintf("%s/game_pdbs", OUT_DIR)
@@ -489,6 +494,11 @@ build_hot_reload :: proc(watch: bool, run_after: bool, build_only: bool) {
 // debug build function - creates debug executable
 build_debug :: proc() {
   print_info("Building debug version...")
+
+  if !copy_raylib_dll() {
+    print_error("Failed to ensure raylib.dll is available")
+    return
+  }
 
   // configuration
   OUT_DIR := "build/debug"
@@ -532,6 +542,11 @@ build_debug :: proc() {
 // release build function - creates optimized release executable
 build_release :: proc() {
   print_info("Building release version...")
+
+  if !copy_raylib_dll() {
+    print_error("Failed to ensure raylib.dll is available")
+    return
+  }
 
   // configuration
   OUT_DIR := "build/release"
@@ -587,7 +602,6 @@ build_web :: proc(debug := false, webgl2 := false) {
     print_info("Debug mode: DISABLED (no debug panel)")
   }
 
-  // configuration - use clean directory structure: build/web/{webgl1|webgl2}/{release|debug}
   webgl_version := webgl2 ? "webgl2" : "webgl1"
   build_type := debug ? "debug" : "release"
   OUT_DIR := fmt.tprintf("build/web/%s/%s", webgl_version, build_type)
@@ -951,7 +965,66 @@ check_command_exists :: proc(command: string) -> bool {
   return test_result.success
 }
 
-// run command with EMSDK environment setup - EXACTLY like PowerShell script
+// get Odin root directory path
+get_odin_root :: proc() -> (string, bool) {
+  result := run_command_with_output("odin", []string{"root"})
+  if !result.success {
+    print_error("Failed to get Odin root path")
+    return "", false
+  }
+  return strings.trim_space(result.output), true
+}
+
+// check if raylib.dll exists in project root
+check_raylib_dll_exists :: proc() -> bool {
+  return os.exists("raylib.dll")
+}
+
+// copy raylib.dll from Odin vendor directory to project root
+copy_raylib_dll :: proc() -> bool {
+  print_info("Checking for raylib.dll in project root...")
+
+  if check_raylib_dll_exists() {
+    print_info("raylib.dll already exists in project root")
+    return true
+  }
+
+  print_info("raylib.dll not found, copying from Odin vendor directory...")
+
+  // get Odin root path
+  odin_root, ok := get_odin_root()
+  if !ok {
+    return false
+  }
+
+  // construct source path
+  raylib_source := fmt.tprintf("%s/vendor/raylib/windows/raylib.dll", odin_root)
+
+  // check if source file exists
+  if !os.exists(raylib_source) {
+    print_error(fmt.tprintf("raylib.dll not found at: %s", raylib_source))
+    return false
+  }
+
+  // read source file
+  dll_data, read_ok := os.read_entire_file(raylib_source)
+  if !read_ok {
+    print_error(fmt.tprintf("Failed to read raylib.dll from: %s", raylib_source))
+    return false
+  }
+  defer delete(dll_data)
+
+  // write to project root
+  write_ok := os.write_entire_file("raylib.dll", dll_data)
+  if !write_ok {
+    print_error("Failed to write raylib.dll to project root")
+    return false
+  }
+
+  print_success("raylib.dll copied successfully to project root")
+  return true
+}
+
 run_command_with_env :: proc(program: string, args: []string, emsdk_dir: string) -> bool {
   full_cmd := fmt.tprintf("%s %s", program, strings.join(args, " "))
   print_info(fmt.tprintf("Running: %s", full_cmd))
@@ -1313,7 +1386,7 @@ get_source_files_recursive :: proc(dir: string, files: ^[dynamic]File_Info) {
   }
 }
 
-// Get all shader files (.vert/.frag) in a directory recursively
+// get all shader files (.vert/.frag) in a directory recursively
 get_shader_files_recursive :: proc(dir: string, files: ^[dynamic]File_Info) {
   handle, err := os.open(dir)
   if err != os.ERROR_NONE {
@@ -1415,10 +1488,10 @@ start_file_watcher :: proc(out_dir: string, pdbs_dir: string, source_dir: string
     delete(stored_files)
   }
 
-  // Monitor source directory (.odin files)
+  // monitor source directory (.odin files)
   get_source_files_recursive(source_dir, &stored_files)
 
-  // Monitor shaders directory (.vert/.frag files) if it exists
+  // monitor shaders directory (.vert/.frag files) if it exists
   if os.is_dir("shaders") {
     get_shader_files_recursive("shaders", &stored_files)
   }
