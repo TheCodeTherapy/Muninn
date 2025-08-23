@@ -18,36 +18,61 @@ set_file_reader :: proc(reader: proc(filename: string, allocator := context.allo
   file_reader_func = reader
 }
 
+// Render timing data for performance monitoring
+Render_Timing :: struct {
+	step1_space_background:   f32,                // Time for space shader rendering
+	step2_ship_render:        f32,                // Time for ship texture rendering
+	step3_background_draw:    f32,                // Time for background draw to final target
+	step4_ship_draw:          f32,                // Time for ship draw to final target
+	step5_bloom_or_final:     f32,                // Time for bloom OR final draw to screen
+	step6_debug_ui:           f32,                // Time for debug UI rendering
+	total_render_time:        f32,                // Total rendering time
+
+	// Averaging data (circular buffer)
+	total_time_history:       [1000]f32,          // Past 1000 frame times
+	history_index:            int,                // Current position in circular buffer
+	history_count:            int,                // Number of valid entries (0-1000)
+	average_render_time:      f32,                // Calculated average
+}
+
 Game_State :: struct {
 	// display and timing
-	resolution:       rl.Vector2,
-	fps:              int,
-	delta_time:       f32,
-	global_time:      f32,
-	frame:            int,
+	resolution:               rl.Vector2,         // viewport resolution
+	fps:                      int,                // frames per second
+	delta_time:               f32,                // time since last frame
+	global_time:              f32,                // total time since start
+	frame:                    int,                // frame count
 
 	// game objects/systems
-	ship:             Ship,
-	camera:           Camera_State,
-	space_shaders:    Shader_Manager, // Background space shaders (multi-pass)
+	ship:                     Ship,               // player ship
+	camera:                   Camera_State,       // camera state
+	space_shaders:            Shader_Manager,     // space shaders (multi-pass)
 
 	// post-processing effects
-	bloom_effect:     Bloom_Effect, // Global bloom post-processing
-	bloom_enabled:    bool, // Toggle for bloom effect
-	final_render_target: rl.RenderTexture2D, // Final composited output
-	bloom_composite_target: rl.RenderTexture2D, // Dedicated target for bloom compositing
-	ship_render_target: rl.RenderTexture2D, // Ship and projectiles with transparent background
+	bloom_effect:             Bloom_Effect,       // Global bloom post-processing
+	bloom_enabled:            bool,               // Toggle for bloom effect
+	bcs_effect:               BCS_Effect,         // Background BCS post-processing
+	bcs_enabled:              bool,               // Toggle for BCS effect
+	space_background_texture: rl.Texture2D,       // space shader output texture
+	ship_render_target:       rl.RenderTexture2D, // ship and projectiles with transparent background
+	final_render_target:      rl.RenderTexture2D, // Final composited output
+	bloom_composite_target:   rl.RenderTexture2D, // dedicated target for bloom compositing
+	bcs_target:               rl.RenderTexture2D, // dedicated target for BCS effect
 
 	// textures
-	font_atlas_texture: rl.Texture2D, // font atlas texture for shaders
+	font_atlas_texture:       rl.Texture2D,       // font atlas texture for shaders
 
 	// debug UI (only in debug builds)
-	debug_ui_ctx:     ^mu.Context,
-	debug_ui_enabled: bool,
-	debug_atlas_texture: rl.RenderTexture2D, // font atlas for debug UI
+	debug_ui_ctx:             ^mu.Context,
+	debug_ui_enabled:         bool,
+	debug_atlas_texture:      rl.RenderTexture2D, // font atlas for debug UI
+	debug_system:             Debug_System,       // debug system state (survives hot reloads)
+
+	// performance monitoring
+	render_timing:            Render_Timing,      // render step timing data
 
 	// game state
-	run:              bool,
+	run:                      bool,               // gotta keep running
 }
 
 g_state: ^Game_State
@@ -62,7 +87,7 @@ init :: proc() {
 	debug_ui_ctx: ^mu.Context = nil
 	debug_enabled := false
 	debug_atlas_texture: rl.RenderTexture2D
-	when #config(ODIN_DEBUG, false) {
+	when #config(ODIN_DEBUG, true) {
 		debug_ui_ctx = new(mu.Context)
 		mu.init(debug_ui_ctx)
 
@@ -128,8 +153,6 @@ init :: proc() {
 		// fallback: create a simple white texture if font atlas is not found
 		font_atlas_texture = rl.LoadTextureFromImage(rl.GenImageColor(1, 1, rl.WHITE))
 		rl.SetTextureFilter(font_atlas_texture, .ANISOTROPIC_16X)
-
-		// TODO: Add proper logging for missing font atlas
 	}
 
 	// load assets (including window icon)
@@ -141,8 +164,15 @@ init :: proc() {
 		fmt.printf("Failed to initialize bloom effect, continuing without bloom")
 	}
 
+	bcs_effect: BCS_Effect
+	bcs_initialized := bcs_effect_init_default(&bcs_effect, i32(width), i32(height), file_reader_func)
+	if !bcs_initialized {
+		fmt.printf("Failed to initialize BCS effect, continuing without BCS")
+	}
+
 	final_render_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
 	bloom_composite_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+	bcs_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
 	ship_render_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
 
 	g_state^ = Game_State {
@@ -161,8 +191,13 @@ init :: proc() {
 		// rendering and post-processing
 		bloom_effect = bloom_initialized ? bloom_effect : {},
 		bloom_enabled = true, // Start with bloom enabled
+
+		bcs_effect = bcs_initialized ? bcs_effect : {},
+		bcs_enabled = true, // Start with BCS enabled
+
 		final_render_target = final_render_target,
 		bloom_composite_target = bloom_composite_target,
+		bcs_target = bcs_target,
 		ship_render_target = ship_render_target,
 		font_atlas_texture = font_atlas_texture,
 
@@ -170,12 +205,16 @@ init :: proc() {
 		debug_ui_ctx = debug_ui_ctx,
 		debug_ui_enabled = debug_enabled,
 		debug_atlas_texture = debug_atlas_texture,
+		debug_system = {}, // Initialize empty debug system
 		run = true,
 	}
 
 	// initialize camera position to match ship's starting position
 	g_state.camera.position = g_state.ship.world_position
 	g_state.camera.target = g_state.ship.world_position
+
+	// initialize debug system
+	debug_system_init()
 }
 
 shutdown :: proc() {
@@ -189,6 +228,11 @@ shutdown :: proc() {
 		bloom_effect_destroy(&g_state.bloom_effect)
 	}
 
+	// clean up BCS effect
+	if g_state.bcs_effect.initialized {
+		bcs_effect_destroy(&g_state.bcs_effect)
+	}
+
 	// clean up final render target
 	if g_state.final_render_target.id != 0 {
 		rl.UnloadRenderTexture(g_state.final_render_target)
@@ -197,6 +241,11 @@ shutdown :: proc() {
 	// clean up bloom composite target
 	if g_state.bloom_composite_target.id != 0 {
 		rl.UnloadRenderTexture(g_state.bloom_composite_target)
+	}
+
+	// clean up BCS target
+	if g_state.bcs_target.id != 0 {
+		rl.UnloadRenderTexture(g_state.bcs_target)
 	}
 
 	// clean up ship render target
@@ -210,7 +259,8 @@ shutdown :: proc() {
 	}
 
 	// clean up debug UI
-	when #config(ODIN_DEBUG, false) {
+	when #config(ODIN_DEBUG, true) {
+		debug_system_destroy()
 		if g_state.debug_atlas_texture.id != 0 {
 			rl.UnloadRenderTexture(g_state.debug_atlas_texture)
 		}
@@ -231,7 +281,7 @@ update :: proc() {
 	g_state.fps = int(rl.GetFPS())
 
 	// handle debug UI input (based on microui example)
-	when #config(ODIN_DEBUG, false) {
+	when #config(ODIN_DEBUG, true) {
 		if g_state.debug_ui_enabled && g_state.debug_ui_ctx != nil {
 			ctx := g_state.debug_ui_ctx
 
@@ -255,14 +305,8 @@ update :: proc() {
 			}
 
 			mu.begin(ctx)
-			// render game state debug UI
-			render_debug_gui(ctx)
-			// render shader manager debug UI
-			if g_state.space_shaders.shader_count > 0 {
-				when #config(ODIN_DEBUG, false) {
-					shader_debug_render_ui(&g_state.space_shaders, g_state.debug_ui_ctx)
-				}
-			}
+			// Render new debug system
+			debug_system_render(ctx)
 			mu.end(ctx)
 		} else if rl.IsKeyPressed(.P) && g_state.debug_ui_ctx != nil {
 			g_state.debug_ui_enabled = true
@@ -283,6 +327,11 @@ update :: proc() {
 			bloom_effect_resize(&g_state.bloom_effect, i32(width), i32(height))
 		}
 
+		// resize BCS effect if initialized
+		if g_state.bcs_effect.initialized {
+			bcs_effect_resize(&g_state.bcs_effect, i32(width), i32(height))
+		}
+
 		// resize final render target
 		if g_state.final_render_target.id != 0 {
 			rl.UnloadRenderTexture(g_state.final_render_target)
@@ -294,12 +343,24 @@ update :: proc() {
 			rl.UnloadRenderTexture(g_state.bloom_composite_target)
 			g_state.bloom_composite_target = rl.LoadRenderTexture(i32(width), i32(height))
 		}
+
+		// resize BCS target
+		if g_state.bcs_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.bcs_target)
+			g_state.bcs_target = rl.LoadRenderTexture(i32(width), i32(height))
+		}
+
+		// resize ship render target
+		if g_state.ship_render_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.ship_render_target)
+			g_state.ship_render_target = rl.LoadRenderTexture(i32(width), i32(height))
+		}
 	}
 
-	// ppdate ship
+	// update ship
 	update_ship(&g_state.ship, &g_state.camera, delta_time, width, height)
 
-	// ppdate camera
+	// update camera
 	update_camera(&g_state.camera, g_state.ship.world_position, g_state.ship.velocity, g_state.ship.rotation, delta_time)
 
 	// test key bindings for camera modes (temporary for testing)
@@ -346,19 +407,16 @@ update :: proc() {
 
 		shader_manager_update(&g_state.space_shaders, delta_time)
 
-		// update debug system (check for console logging triggers)
-		when #config(ODIN_DEBUG, false) {
-			shader_debug_update(&g_state.space_shaders)
-		}
-
 		// handle hot reload for shaders (F7 key)
-		// TODO: this is currently being done automatically by the build system. Not sure if I'll need this in the future
+		// TODO: this is currently being done automatically by the build system
+		// Not sure if I'll need this in the future for something else
 		if rl.IsKeyPressed(.F7) {
 			shader_manager_reload_shaders(&g_state.space_shaders)
 		}
-	}	// test key bindings
+	}
+
 	if rl.IsKeyPressed(.B) {
-		// Initialize bloom on first press if not initialized
+		// initialize bloom on first press if not initialized
 		if !g_state.bloom_effect.initialized {
 			bloom_initialized := bloom_effect_init_default(&g_state.bloom_effect, i32(width), i32(height), file_reader_func)
 			if bloom_initialized {
@@ -367,12 +425,12 @@ update :: proc() {
 				fmt.printf("Failed to initialize bloom effect")
 			}
 		}
-		// Toggle bloom
+
+		// toggle bloom
 		g_state.bloom_enabled = !g_state.bloom_enabled
 		fmt.printf("Bloom %s", g_state.bloom_enabled ? "enabled" : "disabled")
 	}
 
-	// update timing
 	g_state.frame += 1
 
 	if rl.IsKeyPressed(.ESCAPE) {
@@ -438,6 +496,18 @@ hot_reload_render_targets :: proc() {
 
 		g_state.bloom_composite_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
 		fmt.printf("Hot reload: Recreated bloom_composite_target (%dx%d)\n", i32(width), i32(height))
+	}
+
+	if g_state.bcs_target.id == 0 ||
+	   g_state.bcs_target.texture.width != i32(width) ||
+	   g_state.bcs_target.texture.height != i32(height) {
+
+		if g_state.bcs_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.bcs_target)
+		}
+
+		g_state.bcs_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+		fmt.printf("Hot reload: Recreated bcs_target (%dx%d)\n", i32(width), i32(height))
 	}
 
 	if g_state.ship_render_target.id == 0 ||

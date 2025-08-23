@@ -1,33 +1,54 @@
 package gamelogic
 
-import "core:fmt"
 import "core:log"
+import "core:time"
 import rl "vendor:raylib"
 import mu "vendor:microui"
+
 
 _ :: log
 
 render_game :: proc() {
+	total_start := time.now()
+
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 
-	space_background_texture: rl.Texture2D
+	// step 1: render the space background into a texture
+	step1_start := time.now()
 	if g_state.space_shaders.shader_count > 0 {
-		space_background_texture = shader_manager_render(&g_state.space_shaders)
+		g_state.space_background_texture = shader_manager_render(&g_state.space_shaders)
+
+		// apply BCS effect to space background if enabled
+		if g_state.bcs_enabled && g_state.bcs_effect.initialized && g_state.bcs_target.id != 0 {
+			bcs_effect_apply(&g_state.bcs_effect, g_state.space_background_texture, &g_state.bcs_target)
+		}
 	}
+	g_state.render_timing.step1_space_background = f32(time.duration_milliseconds(time.since(step1_start)))
 
+	// step 2: render the ship and related objects into a texture
+	step2_start := time.now()
 	ship_texture := draw_ship_to_texture(&g_state.ship)
+	g_state.render_timing.step2_ship_render = f32(time.duration_milliseconds(time.since(step2_start)))
 
-	// Safety check: ensure render target is valid
+	// safety check: ensure render target is valid
 	if g_state.final_render_target.id == 0 {
-		// Fallback: render directly to screen if render target is not initialized
+		// fallback: render directly to screen if render target is not initialized
 		if g_state.space_shaders.shader_count > 0 {
+			// use BCS target if BCS is enabled, otherwise use original space background
+			texture_to_draw: rl.Texture2D
+			if g_state.bcs_enabled && g_state.bcs_effect.initialized && g_state.bcs_target.id != 0 {
+				texture_to_draw = g_state.bcs_target.texture
+			} else {
+				texture_to_draw = g_state.space_background_texture
+			}
+
 			rl.DrawTextureRec(
-				space_background_texture,
+				texture_to_draw,
 				rl.Rectangle{
 					0, 0,
-					f32(space_background_texture.width),
-					-f32(space_background_texture.height),
+					f32(texture_to_draw.width),
+					-f32(texture_to_draw.height),
 				},
 				{0, 0},
 				rl.WHITE,
@@ -40,25 +61,39 @@ render_game :: proc() {
 	rl.BeginTextureMode(g_state.final_render_target)
 	rl.ClearBackground(rl.BLACK)
 
+	// step 3: draw the space background texture to the final render target
+	step3_start := time.now()
 	if g_state.space_shaders.shader_count > 0 {
+		// Use BCS target if BCS is enabled, otherwise use original space background
+		texture_to_draw: rl.Texture2D
+		if g_state.bcs_enabled && g_state.bcs_effect.initialized && g_state.bcs_target.id != 0 {
+			texture_to_draw = g_state.bcs_target.texture
+		} else {
+			texture_to_draw = g_state.space_background_texture
+		}
+
 		rl.DrawTextureRec(
-			space_background_texture,
+			texture_to_draw,
 			rl.Rectangle{
 				0, 0,
-				f32(space_background_texture.width),
-				-f32(space_background_texture.height), // negative height to flip
+				f32(texture_to_draw.width),
+				-f32(texture_to_draw.height), // negative height to flip
 			},
 			{0, 0},
 			rl.WHITE,
 		)
 	}
+	g_state.render_timing.step3_background_draw = f32(time.duration_milliseconds(time.since(step3_start)))
 
+	// step 4: draw the ship texture to the final render target
+	step4_start := time.now()
 	rl.DrawTextureRec(
 		ship_texture,
 		rl.Rectangle{ 0, 0, f32(ship_texture.width), -f32(ship_texture.height) },
 		{0, 0},
 		rl.WHITE,
 	)
+	g_state.render_timing.step4_ship_draw = f32(time.duration_milliseconds(time.since(step4_start)))
 
 	// draw camera debug visualization if debug UI is enabled
 	when #config(ODIN_DEBUG, false) {
@@ -69,7 +104,8 @@ render_game :: proc() {
 
 	rl.EndTextureMode()
 
-	// Apply bloom if enabled, otherwise draw final result directly
+	// step 5: apply bloom if enabled
+	step5_start := time.now()
 	if g_state.bloom_enabled && g_state.bloom_effect.initialized && g_state.bloom_composite_target.id != 0 {
 		bloom_texture := bloom_effect_apply(&g_state.bloom_effect, g_state.final_render_target.texture)
 		bloom_effect_composite(&g_state.bloom_effect, g_state.final_render_target.texture, bloom_texture, &g_state.bloom_composite_target)
@@ -84,7 +120,7 @@ render_game :: proc() {
 			rl.WHITE,
 		)
 	} else {
-		// Draw final result to screen without bloom
+		// alternative step 5: draw final result to screen without bloom
 		rl.DrawTextureRec(
 			g_state.final_render_target.texture,
 			rl.Rectangle{
@@ -96,121 +132,42 @@ render_game :: proc() {
 			rl.WHITE,
 		)
 	}
+	g_state.render_timing.step5_bloom_or_final = f32(time.duration_milliseconds(time.since(step5_start)))
 
-	// render debug UI on top (always after everything)
+	// step 6: render debug UI on top (always after everything)
+	step6_start := time.now()
 	when #config(ODIN_DEBUG, false) {
 		if g_state.debug_ui_enabled && g_state.debug_ui_ctx != nil {
 			render_microui(g_state.debug_ui_ctx)
 		}
 	}
+	g_state.render_timing.step6_debug_ui = f32(time.duration_milliseconds(time.since(step6_start)))
+
+	// calculate total render time
+	g_state.render_timing.total_render_time = f32(time.duration_milliseconds(time.since(total_start)))
+
+	// update averaging (circular buffer)
+	timing := &g_state.render_timing
+	timing.total_time_history[timing.history_index] = timing.total_render_time
+	timing.history_index = (timing.history_index + 1) % 1000
+	if timing.history_count < 1000 {
+		timing.history_count += 1
+	}
+
+	// calculate average
+	sum: f32 = 0
+	for i in 0..<timing.history_count {
+		sum += timing.total_time_history[i]
+	}
+	timing.average_render_time = sum / f32(timing.history_count)
+
+	when #config(ODIN_DEBUG, true) && ODIN_OS == .JS {
+		if !g_state.debug_ui_enabled {
+			rl.DrawText("debug build: Press <p> to open debug UI", 13, 13, 20, {210, 210, 210, 210})
+		}
+	}
 
 	rl.EndDrawing()
-}
-
-// game state debug UI
-render_debug_gui :: proc(ctx: ^mu.Context) {
-	// game State window
-	if mu.begin_window(ctx, "Game State", {10, 10, 300, 260}) {
-		mu.layout_row(ctx, {80, -1}, 0)
-
-		// FPS
-		mu.label(ctx, "FPS:")
-		mu.label(ctx, fmt.tprintf("%d", g_state.fps))
-
-		// dt
-		mu.label(ctx, "Delta time:")
-		mu.label(ctx, fmt.tprintf("%.5f", g_state.delta_time))
-
-		// frame
-		mu.label(ctx, "Frame:")
-		mu.label(ctx, fmt.tprintf("%d", g_state.frame))
-
-		// ship screen pos
-		mu.label(ctx, "Screen X:")
-		mu.label(ctx, fmt.tprintf("%.1f", g_state.ship.position.x))
-
-		mu.label(ctx, "Screen Y:")
-		mu.label(ctx, fmt.tprintf("%.1f", g_state.ship.position.y))
-
-		// ship world pos
-		mu.label(ctx, "World X:")
-		mu.label(ctx, fmt.tprintf("%.1f", g_state.ship.world_position.x))
-
-		mu.label(ctx, "World Y:")
-		mu.label(ctx, fmt.tprintf("%.1f", g_state.ship.world_position.y))
-
-		// ship vel
-		mu.label(ctx, "Velocity X:")
-		mu.label(ctx, fmt.tprintf("%.2f", g_state.ship.velocity.x))
-
-		mu.label(ctx, "Velocity Y:")
-		mu.label(ctx, fmt.tprintf("%.2f", g_state.ship.velocity.y))
-
-		// ship rot
-		mu.label(ctx, "Rotation:")
-		mu.label(ctx, fmt.tprintf("%.1f°", g_state.ship.rotation))
-
-		// cam info
-		mu.label(ctx, "Camera Mode:")
-		camera_mode_str := ""
-		switch g_state.camera.mode {
-		case .FOLLOW_SHIP:    camera_mode_str = "Follow Ship"
-		case .FIXED_BOUNDS:   camera_mode_str = "Fixed Bounds"
-		case .FREE_EXPLORE:   camera_mode_str = "Free Explore"
-		}
-		mu.label(ctx, camera_mode_str)
-
-		mu.label(ctx, "Wrapping:")
-		mu.label(ctx, g_state.camera.enable_wrapping ? "Enabled" : "Disabled")
-
-		mu.end_window(ctx)
-	}
-
-	// Bloom controls window
-	if mu.begin_window(ctx, "Bloom Effect", {320, 10, 250, 200}) {
-		mu.layout_row(ctx, {-1}, 0)
-
-		// Bloom toggle
-		prev_enabled := g_state.bloom_enabled
-		mu.checkbox(ctx, "Enabled", &g_state.bloom_enabled)
-
-		// Initialize bloom if enabling for the first time
-		if g_state.bloom_enabled && !prev_enabled && !g_state.bloom_effect.initialized {
-			bloom_initialized := bloom_effect_init_default(&g_state.bloom_effect, i32(g_state.resolution.x), i32(g_state.resolution.y), file_reader_func)
-			if !bloom_initialized {
-				g_state.bloom_enabled = false // Turn it back off if initialization failed
-			}
-		}
-
-		// Status
-		mu.layout_row(ctx, {-1}, 0)
-		status_text := g_state.bloom_effect.initialized ? "Status: Initialized" : "Status: Not Initialized"
-		mu.label(ctx, status_text)
-
-		mu.layout_row(ctx, {80, -1}, 0)
-
-		// Threshold slider
-		mu.label(ctx, "Threshold:")
-		mu.slider(ctx, &g_state.bloom_effect.config.threshold, 0.0, 1.0)
-
-		// Intensity slider
-		mu.label(ctx, "Intensity:")
-		mu.slider(ctx, &g_state.bloom_effect.config.intensity, 0.0, 1.0)
-
-		// Strength slider
-		mu.label(ctx, "Strength:")
-		mu.slider(ctx, &g_state.bloom_effect.config.strength, 0.0, 3.0)
-
-		// Exposure slider
-		mu.label(ctx, "Exposure:")
-		mu.slider(ctx, &g_state.bloom_effect.config.exposure, 0.1, 5.0)
-
-		// Radius slider
-		mu.label(ctx, "Radius:")
-		mu.slider(ctx, &g_state.bloom_effect.config.radius, 0.1, 3.0)
-
-		mu.end_window(ctx)
-	}
 }
 
 // MicroUI rendering function

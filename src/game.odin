@@ -31,7 +31,6 @@ import "core:fmt"
 import rl "vendor:raylib"
 import gamelogic "./gamelogic"
 
-// Legacy type alias for hot reload compatibility
 Game_Memory :: gamelogic.Game_State
 
 g: ^Game_Memory
@@ -108,6 +107,10 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	gamelogic.hot_reload_render_targets()
 	fmt.printf("HOT RELOAD: Render targets checked!\n")
 
+	fmt.printf("HOT RELOAD: Reinitializing debug system...\n")
+	gamelogic.debug_system_hot_reload()
+	fmt.printf("HOT RELOAD: Debug system reinitialized!\n")
+
 	if g.bloom_effect.initialized {
 		fmt.printf("HOT RELOAD: Reinitializing bloom effect...\n")
 		bloom_success := gamelogic.bloom_effect_hot_reload(&g.bloom_effect)
@@ -115,6 +118,16 @@ game_hot_reloaded :: proc(mem: rawptr) {
 			fmt.printf("HOT RELOAD: Bloom effect reload successful!\n")
 		} else {
 			fmt.printf("HOT RELOAD: Bloom effect reload FAILED!\n")
+		}
+	}
+
+	if g.bcs_effect.initialized {
+		fmt.printf("HOT RELOAD: Reinitializing BCS effect...\n")
+		bcs_success := gamelogic.bcs_effect_hot_reload(&g.bcs_effect)
+		if bcs_success {
+			fmt.printf("HOT RELOAD: BCS effect reload successful!\n")
+		} else {
+			fmt.printf("HOT RELOAD: BCS effect reload FAILED!\n")
 		}
 	}
 }

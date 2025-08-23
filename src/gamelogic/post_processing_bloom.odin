@@ -1,27 +1,9 @@
+#+feature dynamic-literals
 package gamelogic
 
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
-
-rect_src_flipped :: proc(tex: rl.Texture2D) -> rl.Rectangle {
-	return rl.Rectangle{ 0, 0, f32(tex.width), -f32(tex.height) } // flip Y
-}
-
-rect_dst_rt :: proc(rt: rl.RenderTexture2D) -> rl.Rectangle {
-	return rl.Rectangle{ 0, 0, f32(rt.texture.width), f32(rt.texture.height) }
-}
-
-draw_to_rt_scaled :: proc(tex: rl.Texture2D, rt: rl.RenderTexture2D) {
-	rl.DrawTexturePro(
-		tex,
-		rect_src_flipped(tex),
-		rect_dst_rt(rt),
-		rl.Vector2{0,0},
-		0.0,
-		rl.WHITE,
-	)
-}
 
 Bloom_Config :: struct {
   threshold:     f32, // Brightness threshold for bloom
@@ -72,72 +54,82 @@ DEFAULT_BLOOM_CONFIG :: Bloom_Config {
   intensity = 0.3,
   strength = 1.7,
   exposure = 3.5,
-  radius = 1.3,     // Default bloom radius
+  radius = 1.3,
   mip_levels = 5,
   mip_weights = {}, // set in bloom_effect_init_default
 }
 
-bloom_effect_init :: proc(bloom: ^Bloom_Effect, config: Bloom_Config, width, height: i32, file_reader: File_Reader) -> bool {
-    bloom.config = config
-    bloom.screen_width = width
-    bloom.screen_height = height
-    bloom.file_reader = file_reader
-
-    if config.mip_levels < 2 || config.mip_levels > 8 {
-      fmt.printf("ERROR: Bloom: Invalid MIP levels count: %d (must be 2-8)\n", config.mip_levels)
-      return false
-    }
-
-    if len(config.mip_weights) != config.mip_levels {
-      fmt.printf(
-        "ERROR: Bloom: MIP weights count (%d) doesn't match MIP levels (%d)\n",
-        len(config.mip_weights), config.mip_levels,
-      )
-      return false
-    }
-
-    if !bloom_load_shaders(bloom) {
-      fmt.printf("ERROR: Bloom: Failed to load shaders\n")
-      bloom_effect_destroy(bloom)
-      return false
-    }
-
-    // create MIP chain render targets
-    if !bloom_create_mip_chain(bloom) {
-      fmt.printf("ERROR: Bloom: Failed to create MIP chain\n")
-      bloom_effect_destroy(bloom)
-      return false
-    }
-
-    bloom.initialized = true
-
-    fmt.printf("========== BLOOM EFFECT INITIALIZED ==========\n")
-    fmt.printf("Screen Resolution: %dx%d\n", width, height)
-    fmt.printf("MIP Levels: %d\n", config.mip_levels)
-    fmt.printf(
-      "Config: threshold=%.2f, intensity=%.2f, strength=%.2f, exposure=%.2f\n",
-      config.threshold, config.intensity, config.strength, config.exposure,
-    )
-
-    for i in 0..<config.mip_levels {
-      fmt.printf(
-        "MIP Level %d: %dx%d (read: %d, write: %d)\n",
-        i, bloom.mip_levels[i].width, bloom.mip_levels[i].height,
-        bloom.mip_levels[i].read_buffer.texture.id, bloom.mip_levels[i].write_buffer.texture.id,
-      )
-    }
-
-    fmt.printf(
-      "Shaders loaded: bright_pass=%d, downsample=%d, upsample=%d, composite=%d\n",
-      bloom.bright_pass_shader.id, bloom.downsample_shader.id,
-      bloom.upsample_shader.id, bloom.composite_shader.id,
-    )
-    fmt.printf("===============================================\n")
-
-    return true
+// parameter constraints MicroUI sliders
+BLOOM_PARAMETER_CONSTRAINTS := map[string]Parameter_Constraint{
+  "threshold" = {type = .FLOAT, min_val = 0.0, max_val = 2.0, step = 0.01, default = 0.3},
+  "intensity" = {type = .FLOAT, min_val = 0.0, max_val = 5.0, step = 0.1, default = 0.3},
+  "strength"  = {type = .FLOAT, min_val = 0.0, max_val = 10.0, step = 0.1, default = 1.7},
+  "exposure"  = {type = .FLOAT, min_val = 0.1, max_val = 10.0, step = 0.1, default = 3.5},
+  "radius"    = {type = .FLOAT, min_val = 0.1, max_val = 5.0, step = 0.1, default = 1.3},
+  "mip_levels"= {type = .INT, min_val = 2, max_val = 8, step = 1, default = 5},
 }
 
-// Global static weights to avoid dangling pointer issues
+bloom_effect_init :: proc(bloom: ^Bloom_Effect, config: Bloom_Config, width, height: i32, file_reader: File_Reader) -> bool {
+  bloom.config = config
+  bloom.screen_width = width
+  bloom.screen_height = height
+  bloom.file_reader = file_reader
+
+  if config.mip_levels < 2 || config.mip_levels > 8 {
+    fmt.printf("ERROR: Bloom: Invalid MIP levels count: %d (must be 2-8)\n", config.mip_levels)
+    return false
+  }
+
+  if len(config.mip_weights) != config.mip_levels {
+    fmt.printf(
+      "ERROR: Bloom: MIP weights count (%d) doesn't match MIP levels (%d)\n",
+      len(config.mip_weights), config.mip_levels,
+    )
+    return false
+  }
+
+  if !bloom_load_shaders(bloom) {
+    fmt.printf("ERROR: Bloom: Failed to load shaders\n")
+    bloom_effect_destroy(bloom)
+    return false
+  }
+
+  // create MIP chain render targets
+  if !bloom_create_mip_chain(bloom) {
+    fmt.printf("ERROR: Bloom: Failed to create MIP chain\n")
+    bloom_effect_destroy(bloom)
+    return false
+  }
+
+  bloom.initialized = true
+
+  fmt.printf("========== BLOOM EFFECT INITIALIZED ==========\n")
+  fmt.printf("Screen Resolution: %dx%d\n", width, height)
+  fmt.printf("MIP Levels: %d\n", config.mip_levels)
+  fmt.printf(
+    "Config: threshold=%.2f, intensity=%.2f, strength=%.2f, exposure=%.2f\n",
+    config.threshold, config.intensity, config.strength, config.exposure,
+  )
+
+  for i in 0..<config.mip_levels {
+    fmt.printf(
+      "MIP Level %d: %dx%d (read: %d, write: %d)\n",
+      i, bloom.mip_levels[i].width, bloom.mip_levels[i].height,
+      bloom.mip_levels[i].read_buffer.texture.id, bloom.mip_levels[i].write_buffer.texture.id,
+    )
+  }
+
+  fmt.printf(
+    "Shaders loaded: bright_pass=%d, downsample=%d, upsample=%d, composite=%d\n",
+    bloom.bright_pass_shader.id, bloom.downsample_shader.id,
+    bloom.upsample_shader.id, bloom.composite_shader.id,
+  )
+  fmt.printf("===============================================\n")
+
+  return true
+}
+
+// global static weights to avoid dangling pointer issues
 @(private)
 STATIC_MIP_WEIGHTS := [5]f32{1.0, 1.0, 1.0, 1.0, 1.0}
 
@@ -148,7 +140,6 @@ bloom_effect_init_default :: proc(bloom: ^Bloom_Effect, width, height: i32, file
   return bloom_effect_init(bloom, config, width, height, file_reader)
 }
 
-// load all bloom shaders
 bloom_load_shaders :: proc(bloom: ^Bloom_Effect) -> bool {
   vertex_path := resolve_shader_path("default.vert")
   defer delete(vertex_path)
@@ -230,7 +221,6 @@ bloom_cache_uniform_locations :: proc(bloom: ^Bloom_Effect) {
   bloom.composite_uniforms["exposure"] = rl.GetShaderLocation(bloom.composite_shader, "exposure")
 }
 
-// create MIP chain render targets
 bloom_create_mip_chain :: proc(bloom: ^Bloom_Effect) -> bool {
   // clean up existing MIP levels first to prevent memory leaks
   if bloom.mip_levels != nil {
@@ -289,7 +279,6 @@ bloom_create_mip_chain :: proc(bloom: ^Bloom_Effect) -> bool {
   return true
 }
 
-// apply bloom effect to input texture and return the bloomed result
 bloom_effect_apply :: proc(bloom: ^Bloom_Effect, input_texture: rl.Texture2D) -> rl.Texture2D {
   if !bloom.initialized {
     fmt.printf("WARNING: Bloom: Effect not initialized, returning original texture\n")
@@ -310,7 +299,6 @@ bloom_effect_apply :: proc(bloom: ^Bloom_Effect, input_texture: rl.Texture2D) ->
   return final_texture
 }
 
-// composite bloom with original texture
 bloom_effect_composite :: proc(bloom: ^Bloom_Effect, original_texture: rl.Texture2D, bloom_texture: rl.Texture2D, output_target: ^rl.RenderTexture2D) {
   if !bloom.initialized {
     fmt.printf("WARNING: Bloom: Effect not initialized, skipping composite\n")
@@ -338,7 +326,6 @@ bloom_effect_composite :: proc(bloom: ^Bloom_Effect, original_texture: rl.Textur
   draw_to_rt_scaled(original_texture, output_target^)
 }
 
-// render bright pass
 bloom_render_bright_pass :: proc(bloom: ^Bloom_Effect, input_texture: rl.Texture2D) {
   // write to MIP level 0 write buffer
   rl.BeginTextureMode(bloom.mip_levels[0].write_buffer)
@@ -366,7 +353,6 @@ bloom_render_bright_pass :: proc(bloom: ^Bloom_Effect, input_texture: rl.Texture
   bloom.mip_levels[0].write_buffer = temp
 }
 
-// render downsample chain
 bloom_render_downsample_chain :: proc(bloom: ^Bloom_Effect) {
   for i in 1..<bloom.config.mip_levels {
     source_level := &bloom.mip_levels[i-1]
@@ -400,7 +386,6 @@ bloom_render_downsample_chain :: proc(bloom: ^Bloom_Effect) {
   }
 }
 
-// render upsample chain using proper shader-based upsampling with blur
 bloom_render_upsample_chain :: proc(bloom: ^Bloom_Effect) {
   // start from the smallest MIP and work back up
   for i := bloom.config.mip_levels - 2; i >= 0; i -= 1 {
@@ -438,7 +423,7 @@ bloom_render_upsample_chain :: proc(bloom: ^Bloom_Effect) {
     // draw fullscreen quad to apply the upsample shader
     draw_to_rt_scaled(source_level.read_buffer.texture, target_level.write_buffer)
 
-    // swap buffers after upsample (like shader_manager.odin)
+    // swap buffers after upsample
     temp := target_level.read_buffer
     target_level.read_buffer = target_level.write_buffer
     target_level.write_buffer = temp
@@ -460,7 +445,6 @@ bloom_effect_update_config :: proc(bloom: ^Bloom_Effect, config: Bloom_Config) {
   bloom.config = config
 }
 
-// hot reload bloom effect (reload shaders, keep render targets)
 bloom_effect_hot_reload :: proc(bloom: ^Bloom_Effect) -> bool {
   if !bloom.initialized do return false
 
@@ -500,7 +484,6 @@ bloom_effect_hot_reload :: proc(bloom: ^Bloom_Effect) -> bool {
   return true
 }
 
-// destroy bloom effect and clean up resources
 bloom_effect_destroy :: proc(bloom: ^Bloom_Effect) {
   if !bloom.initialized do return
 
@@ -561,4 +544,30 @@ load_shader :: proc(file_reader: File_Reader, vertex_path: string, fragment_path
   defer delete(fragment_cstr)
 
   return rl.LoadShaderFromMemory(vertex_cstr, fragment_cstr)
+}
+
+// calculate memory usage for debug info
+calculate_bloom_memory_usage :: proc(bloom: ^Bloom_Effect) -> f32 {
+  if !bloom.initialized do return 0.0
+
+  total_bytes := 0
+  for level in bloom.mip_levels {
+    // Each render target: width * height * 16 bytes (RGBA32F)
+    bytes_per_target := level.width * level.height * 16
+    total_bytes += int(bytes_per_target * 2) // read + write buffer
+  }
+
+  return f32(total_bytes) / (1024.0 * 1024.0) // Convert to MB
+}
+
+bloom_get_debug_info :: proc(bloom: ^Bloom_Effect) -> Effect_Debug_Info {
+  return Effect_Debug_Info{
+    name = "Bloom Effect",
+    initialized = bloom.initialized,
+    parameters = {},
+    shaders = {},
+    render_targets = {},
+    uniforms = {},
+    memory_usage_mb = calculate_bloom_memory_usage(bloom),
+  }
 }

@@ -62,7 +62,7 @@ float thrustersDist(vec2 uv) {
   float offset_map = remap(ship_speed, 0.0, 1000.0, -70.0, 20.0);
   float alpha_map = remap(ship_speed, 0.0, 2000.0, 0.0, 1.0);
 
-  float mult_map = remap(ship_speed, 0.0, 1000.0, 1.0, 3.0);
+  float mult_map = remap(ship_speed, 0.0, 1000.0, 1.0, 3.5);
   float height = 3.0 * mult_map;
   float r1_map = remap(ship_speed, 0.0, 1000.0, 0.01, 0.1);
   float r2_map = remap(ship_speed, 0.0, 1000.0, 0.05, 1.5);
