@@ -1,31 +1,64 @@
 package gamelogic
 
 import "core:fmt"
+import "core:log"
 import rl "vendor:raylib"
 import mu "vendor:microui"
+
+_ :: log
 
 render_game :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 
-	// render space using shader manager (multi-pass rendering)
+	space_background_texture: rl.Texture2D
 	if g_state.space_shaders.shader_count > 0 {
-		final_texture := shader_manager_render(&g_state.space_shaders)
-		// draw the final texture to screen
+		space_background_texture = shader_manager_render(&g_state.space_shaders)
+	}
+
+	ship_texture := draw_ship_to_texture(&g_state.ship)
+
+	// Safety check: ensure render target is valid
+	if g_state.final_render_target.id == 0 {
+		// Fallback: render directly to screen if render target is not initialized
+		if g_state.space_shaders.shader_count > 0 {
+			rl.DrawTextureRec(
+				space_background_texture,
+				rl.Rectangle{
+					0, 0,
+					f32(space_background_texture.width),
+					-f32(space_background_texture.height),
+				},
+				{0, 0},
+				rl.WHITE,
+			)
+		}
+		draw_ship(&g_state.ship)
+		return
+	}
+
+	rl.BeginTextureMode(g_state.final_render_target)
+	rl.ClearBackground(rl.BLACK)
+
+	if g_state.space_shaders.shader_count > 0 {
 		rl.DrawTextureRec(
-			final_texture,
+			space_background_texture,
 			rl.Rectangle{
 				0, 0,
-				f32(final_texture.width),
-				-f32(final_texture.height), // negative height to flip
+				f32(space_background_texture.width),
+				-f32(space_background_texture.height), // negative height to flip
 			},
 			{0, 0},
 			rl.WHITE,
 		)
 	}
 
-	// draw the ship on top of the background
-	draw_ship(&g_state.ship)
+	rl.DrawTextureRec(
+		ship_texture,
+		rl.Rectangle{ 0, 0, f32(ship_texture.width), -f32(ship_texture.height) },
+		{0, 0},
+		rl.WHITE,
+	)
 
 	// draw camera debug visualization if debug UI is enabled
 	when #config(ODIN_DEBUG, false) {
@@ -34,7 +67,37 @@ render_game :: proc() {
 		}
 	}
 
-	// render debug UI on top
+	rl.EndTextureMode()
+
+	// Apply bloom if enabled, otherwise draw final result directly
+	if g_state.bloom_enabled && g_state.bloom_effect.initialized && g_state.bloom_composite_target.id != 0 {
+		bloom_texture := bloom_effect_apply(&g_state.bloom_effect, g_state.final_render_target.texture)
+		bloom_effect_composite(&g_state.bloom_effect, g_state.final_render_target.texture, bloom_texture, &g_state.bloom_composite_target)
+		rl.DrawTextureRec(
+			g_state.bloom_composite_target.texture,
+			rl.Rectangle{
+				0, 0,
+				f32(g_state.bloom_composite_target.texture.width),
+				-f32(g_state.bloom_composite_target.texture.height), // negative height to flip
+			},
+			{0, 0},
+			rl.WHITE,
+		)
+	} else {
+		// Draw final result to screen without bloom
+		rl.DrawTextureRec(
+			g_state.final_render_target.texture,
+			rl.Rectangle{
+				0, 0,
+				f32(g_state.final_render_target.texture.width),
+				-f32(g_state.final_render_target.texture.height), // negative height to flip
+			},
+			{0, 0},
+			rl.WHITE,
+		)
+	}
+
+	// render debug UI on top (always after everything)
 	when #config(ODIN_DEBUG, false) {
 		if g_state.debug_ui_enabled && g_state.debug_ui_ctx != nil {
 			render_microui(g_state.debug_ui_ctx)
@@ -99,6 +162,52 @@ render_debug_gui :: proc(ctx: ^mu.Context) {
 
 		mu.label(ctx, "Wrapping:")
 		mu.label(ctx, g_state.camera.enable_wrapping ? "Enabled" : "Disabled")
+
+		mu.end_window(ctx)
+	}
+
+	// Bloom controls window
+	if mu.begin_window(ctx, "Bloom Effect", {320, 10, 250, 200}) {
+		mu.layout_row(ctx, {-1}, 0)
+
+		// Bloom toggle
+		prev_enabled := g_state.bloom_enabled
+		mu.checkbox(ctx, "Enabled", &g_state.bloom_enabled)
+
+		// Initialize bloom if enabling for the first time
+		if g_state.bloom_enabled && !prev_enabled && !g_state.bloom_effect.initialized {
+			bloom_initialized := bloom_effect_init_default(&g_state.bloom_effect, i32(g_state.resolution.x), i32(g_state.resolution.y), file_reader_func)
+			if !bloom_initialized {
+				g_state.bloom_enabled = false // Turn it back off if initialization failed
+			}
+		}
+
+		// Status
+		mu.layout_row(ctx, {-1}, 0)
+		status_text := g_state.bloom_effect.initialized ? "Status: Initialized" : "Status: Not Initialized"
+		mu.label(ctx, status_text)
+
+		mu.layout_row(ctx, {80, -1}, 0)
+
+		// Threshold slider
+		mu.label(ctx, "Threshold:")
+		mu.slider(ctx, &g_state.bloom_effect.config.threshold, 0.0, 1.0)
+
+		// Intensity slider
+		mu.label(ctx, "Intensity:")
+		mu.slider(ctx, &g_state.bloom_effect.config.intensity, 0.0, 1.0)
+
+		// Strength slider
+		mu.label(ctx, "Strength:")
+		mu.slider(ctx, &g_state.bloom_effect.config.strength, 0.0, 3.0)
+
+		// Exposure slider
+		mu.label(ctx, "Exposure:")
+		mu.slider(ctx, &g_state.bloom_effect.config.exposure, 0.1, 5.0)
+
+		// Radius slider
+		mu.label(ctx, "Radius:")
+		mu.slider(ctx, &g_state.bloom_effect.config.radius, 0.1, 3.0)
 
 		mu.end_window(ctx)
 	}

@@ -1,7 +1,6 @@
 package gamelogic
 
 import "core:fmt"
-import "core:log"
 import "core:strings"
 import rl "vendor:raylib"
 
@@ -110,7 +109,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     sm.render_targets[i].write_buffer = LoadRT_WithFallback(width, height, .UNCOMPRESSED_R32G32B32A32)
 
     if sm.render_targets[i].read_buffer.id == 0 || sm.render_targets[i].write_buffer.id == 0 {
-      log.errorf("Failed to create render targets for shader %d", i)
+      fmt.printf("Failed to create render targets for shader %d", i)
       shader_manager_destroy(sm)
       return false
     }
@@ -133,7 +132,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     defer delete(vertex_cstr)
 
     if !rl.FileExists(vertex_cstr) {
-      log.errorf("Vertex shader file not found: %s", vertex_shader_path)
+      fmt.printf("Vertex shader file not found: %s", vertex_shader_path)
       shader_manager_destroy(sm)
       return false
     }
@@ -142,7 +141,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     defer delete(fragment_cstr)
 
     if !rl.FileExists(fragment_cstr) {
-      log.errorf("Fragment shader file not found: %s", fragment_shader_paths[i])
+      fmt.printf("Fragment shader file not found: %s", fragment_shader_paths[i])
       shader_manager_destroy(sm)
       return false
     }
@@ -150,7 +149,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     sm.shaders[i] = load_shader_with_preprocessing(sm, vertex_shader_path, fragment_shader_paths[i])
 
     if sm.shaders[i].id == 0 {
-      log.errorf("Failed to load shader %d: vertex=%s, fragment=%s", i, vertex_shader_path, fragment_shader_paths[i])
+      fmt.printf("Failed to load shader %d: vertex=%s, fragment=%s", i, vertex_shader_path, fragment_shader_paths[i])
       shader_manager_destroy(sm)
       return false
     }
@@ -173,7 +172,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     sm.uniform_locations[i]["ship_velocity"] = rl.GetShaderLocation(sm.shaders[i], "ship_velocity")
     sm.uniform_locations[i]["ship_speed"] = rl.GetShaderLocation(sm.shaders[i], "ship_speed")
 
-    log.infof("Shader %d common uniforms: time=%d, frame=%d, resolution=%d, mouse=%d, mouselerp=%d",
+    fmt.printf("Shader %d common uniforms: time=%d, frame=%d, resolution=%d, mouse=%d, mouselerp=%d",
       i,
       sm.uniform_locations[i]["time"],
       sm.uniform_locations[i]["delta_time"],
@@ -192,11 +191,11 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
       defer delete(cstr_name) // Clean up C string
       location := rl.GetShaderLocation(sm.shaders[i], cstr_name)
       sm.uniform_locations[i][uniform_name] = location
-      log.infof("Shader %d: %s location = %d (stored as key: '%s')", i, uniform_name, location, uniform_name)
+      fmt.printf("Shader %d: %s location = %d (stored as key: '%s')", i, uniform_name, location, uniform_name)
     }
   }
 
-  log.infof("Shader manager '%s' initialized with %d shaders", sm.name, sm.shader_count)
+  fmt.printf("Shader manager '%s' initialized with %d shaders", sm.name, sm.shader_count)
   return true
 }
 
@@ -227,7 +226,7 @@ shader_manager_init_from_paths :: proc(
   }
 
   if !all_shaders_exist {
-    log.errorf("Shader manager '%s': some shader files not found", name)
+    fmt.printf("Shader manager '%s': some shader files not found", name)
     return shader_manager, false
   }
 
@@ -244,12 +243,12 @@ shader_manager_init_from_paths :: proc(
 
 // hot reload shaders
 shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
-  log.infof("=== HOT RELOADING SHADERS (%s) ===", sm.name)
+  fmt.printf("=== HOT RELOADING SHADERS (%s) ===", sm.name)
 
   // unload existing shaders
   for i in 0..<sm.shader_count {
     if sm.shaders[i].id != 0 {
-      log.infof("Unloading old shader %d (ID: %d)", i, sm.shaders[i].id)
+      fmt.printf("Unloading old shader %d (ID: %d)", i, sm.shaders[i].id)
       rl.UnloadShader(sm.shaders[i])
     }
     // clear old uniform locations and clean up string keys
@@ -265,7 +264,7 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
 
   // reload all shaders
   for i in 0..<sm.shader_count {
-    log.infof("Reloading shader %d: vertex=%s, fragment=%s",
+    fmt.printf("Reloading shader %d: vertex=%s, fragment=%s",
       i, sm.vertex_shader_path, sm.fragment_shader_paths[i],
     )
 
@@ -277,14 +276,14 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
     sm.shaders[i] = load_shader_with_preprocessing(sm, sm.vertex_shader_path, sm.fragment_shader_paths[i])
 
     if sm.shaders[i].id == 0 {
-      log.errorf(
+      fmt.printf(
         "RELOAD FAILED: Shader %d failed to compile: vertex=%s, fragment=%s",
         i, sm.vertex_shader_path, sm.fragment_shader_paths[i],
       )
       return false
     }
 
-    log.infof("Shader %d reloaded successfully (new ID: %d)", i, sm.shaders[i].id)
+    fmt.printf("Shader %d reloaded successfully (new ID: %d)", i, sm.shaders[i].id)
 
     // get locations for common uniforms
     sm.uniform_locations[i]["time"] = rl.GetShaderLocation(sm.shaders[i], "time")
@@ -301,7 +300,7 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
     sm.uniform_locations[i]["ship_velocity"] = rl.GetShaderLocation(sm.shaders[i], "ship_velocity")
     sm.uniform_locations[i]["ship_speed"] = rl.GetShaderLocation(sm.shaders[i], "ship_speed")
 
-    log.infof(
+    fmt.printf(
       "RELOADED Shader %d common uniforms: time=%d, frame=%d, resolution=%d, mouse=%d, mouselerp=%d",
       i,
       sm.uniform_locations[i]["time"],
@@ -322,11 +321,11 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
 
       location := rl.GetShaderLocation(sm.shaders[i], cstr_name)
       sm.uniform_locations[i][uniform_name] = location
-      log.infof("RELOADED Shader %d: %s location = %d", i, uniform_name, location)
+      fmt.printf("RELOADED Shader %d: %s location = %d", i, uniform_name, location)
     }
   }
 
-  log.infof("=== SHADER HOT RELOAD COMPLETE (%s) ===", sm.name)
+  fmt.printf("=== SHADER HOT RELOAD COMPLETE (%s) ===", sm.name)
   return true
 }
 
@@ -374,7 +373,7 @@ shader_manager_destroy :: proc(sm: ^Shader_Manager) {
   // clean up shader paths
   delete(sm.fragment_shader_paths)
 
-  log.infof("Shader manager '%s' destroyed", sm.name)
+  fmt.printf("Shader manager '%s' destroyed", sm.name)
 }
 
 
@@ -437,7 +436,7 @@ shader_manager_resize :: proc(sm: ^Shader_Manager, new_width, new_height: i32) {
     target.write_buffer = LoadRT_WithFallback(new_width, new_height, .UNCOMPRESSED_R32G32B32A32)
   }
 
-  log.infof("Shader manager '%s' resized to %dx%d", sm.name, new_width, new_height)
+  fmt.printf("Shader manager '%s' resized to %dx%d", sm.name, new_width, new_height)
 }
 
 // set an additional uniform value
@@ -613,7 +612,7 @@ resolve_shader_path :: proc(relative_path: string, allocator := context.allocato
 process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path: string, depth: int = 0) -> string {
   // nesting safe-guard
   if depth > 10 {
-    log.errorf("Maximum include depth exceeded (10) in %s", source_path)
+    fmt.printf("Maximum include depth exceeded (10) in %s", source_path)
     return source
   }
 
@@ -638,7 +637,7 @@ process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path
       // Extract filename from include directive
       include_filename := extract_include_filename(trimmed_line)
       if include_filename == "" {
-        log.warnf("Invalid #include directive at line %d in %s: %s", line_idx + 1, source_path, line)
+        fmt.printf("Invalid #include directive at line %d in %s: %s", line_idx + 1, source_path, line)
         strings.write_string(&builder, line)
         strings.write_byte(&builder, '\n')
         continue
@@ -649,7 +648,7 @@ process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path
 
       include_data, include_ok := sm.file_reader(include_path)
       if !include_ok {
-        log.errorf("Failed to read include file: %s (referenced from %s)", include_path, source_path)
+        fmt.printf("Failed to read include file: %s (referenced from %s)", include_path, source_path)
         strings.write_string(&builder, line)
         strings.write_byte(&builder, '\n')
         continue
@@ -664,7 +663,7 @@ process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path
       strings.write_string(&builder, processed_include)
       strings.write_byte(&builder, '\n')
 
-      log.infof("Included %s into %s (depth %d)", include_path, source_path, depth)
+      fmt.printf("Included %s into %s (depth %d)", include_path, source_path, depth)
     } else {
       strings.write_string(&builder, line)
       strings.write_byte(&builder, '\n')
@@ -708,7 +707,7 @@ load_shader_with_preprocessing :: proc(sm: ^Shader_Manager, vertex_path: string,
   // Load vertex shader content
   vertex_data, vertex_ok := sm.file_reader(vertex_path)
   if !vertex_ok {
-    log.errorf("Failed to read vertex shader: %s", vertex_path)
+    fmt.printf("Failed to read vertex shader: %s", vertex_path)
     return rl.Shader{}
   }
   defer delete(vertex_data)
@@ -716,7 +715,7 @@ load_shader_with_preprocessing :: proc(sm: ^Shader_Manager, vertex_path: string,
   // Load fragment shader content
   fragment_data, fragment_ok := sm.file_reader(fragment_path)
   if !fragment_ok {
-    log.errorf("Failed to read fragment shader: %s", fragment_path)
+    fmt.printf("Failed to read fragment shader: %s", fragment_path)
     return rl.Shader{}
   }
   defer delete(fragment_data)

@@ -92,7 +92,6 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	g = (^Game_Memory)(mem)
 	gamelogic.set_state(g)
 
-	// Hot reload shaders when code reloads
 	fmt.printf("HOT RELOAD: Reloading shaders...\n")
 	success := gamelogic.shader_manager_reload_shaders(&g.space_shaders)
 	if success {
@@ -101,13 +100,23 @@ game_hot_reloaded :: proc(mem: rawptr) {
 		fmt.printf("HOT RELOAD: Shader reload FAILED!\n")
 	}
 
-	// Hot reload camera parameters when code reloads
 	fmt.printf("HOT RELOAD: Completely reinitializing camera system...\n")
 	gamelogic.camera_hot_reload(&g.camera)
 	fmt.printf("HOT RELOAD: Camera system reinitialized!\n")
 
-	// Here you can also set your own global variables. A good idea is to make
-	// your global variables into pointers that point to something inside `g`.
+	fmt.printf("HOT RELOAD: Checking render targets...\n")
+	gamelogic.hot_reload_render_targets()
+	fmt.printf("HOT RELOAD: Render targets checked!\n")
+
+	if g.bloom_effect.initialized {
+		fmt.printf("HOT RELOAD: Reinitializing bloom effect...\n")
+		bloom_success := gamelogic.bloom_effect_hot_reload(&g.bloom_effect)
+		if bloom_success {
+			fmt.printf("HOT RELOAD: Bloom effect reload successful!\n")
+		} else {
+			fmt.printf("HOT RELOAD: Bloom effect reload FAILED!\n")
+		}
+	}
 }
 
 @(export)

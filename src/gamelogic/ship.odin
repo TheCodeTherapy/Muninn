@@ -113,7 +113,7 @@ update_projectiles :: proc(ship: ^Ship, delta_time: f32, window_width: f32, wind
 draw_projectiles :: proc(ship: ^Ship) {
 	for projectile in &ship.projectiles {
 		if projectile.active {
-			rl.DrawCircleV(projectile.position, 2.0, rl.YELLOW)
+			rl.DrawCircleV(projectile.position, 3.0, {0, 120, 255, 255})
 		}
 	}
 }
@@ -263,4 +263,22 @@ draw_ship :: proc(ship: ^Ship) {
 
 	// draw projectiles
 	draw_projectiles(ship)
+}
+
+// draw ship and projectiles to a texture with transparent background
+draw_ship_to_texture :: proc(ship: ^Ship) -> rl.Texture2D {
+	g_state := get_state()
+
+	// Safety check: ensure render target is valid
+	if g_state.ship_render_target.id == 0 {
+		// Return empty texture if render target is not initialized
+		return rl.Texture2D{}
+	}
+
+	rl.BeginTextureMode(g_state.ship_render_target)
+	rl.ClearBackground(rl.Color{0, 0, 0, 0})
+	draw_ship(ship)
+	rl.EndTextureMode()
+
+	return g_state.ship_render_target.texture
 }

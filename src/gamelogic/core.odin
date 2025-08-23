@@ -1,5 +1,6 @@
 package gamelogic
 
+import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
 import mu "vendor:microui"
@@ -29,6 +30,13 @@ Game_State :: struct {
 	ship:             Ship,
 	camera:           Camera_State,
 	space_shaders:    Shader_Manager, // Background space shaders (multi-pass)
+
+	// post-processing effects
+	bloom_effect:     Bloom_Effect, // Global bloom post-processing
+	bloom_enabled:    bool, // Toggle for bloom effect
+	final_render_target: rl.RenderTexture2D, // Final composited output
+	bloom_composite_target: rl.RenderTexture2D, // Dedicated target for bloom compositing
+	ship_render_target: rl.RenderTexture2D, // Ship and projectiles with transparent background
 
 	// textures
 	font_atlas_texture: rl.Texture2D, // font atlas texture for shaders
@@ -127,16 +135,38 @@ init :: proc() {
 	// load assets (including window icon)
 	load_assets()
 
+	bloom_effect: Bloom_Effect
+	bloom_initialized := bloom_effect_init_default(&bloom_effect, i32(width), i32(height), file_reader_func)
+	if !bloom_initialized {
+		fmt.printf("Failed to initialize bloom effect, continuing without bloom")
+	}
+
+	final_render_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+	bloom_composite_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+	ship_render_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+
 	g_state^ = Game_State {
+		// display and timing
 		resolution = rl.Vector2{width, height},
 		fps = 0,
 		delta_time = 0,
 		global_time = 0,
 		frame = 1,
+
+		// game objects/systems
 		ship = init_ship(width, height),
 		camera = init_camera(),
 		space_shaders = shader_manager_initialized ? space_shaders : {},
+
+		// rendering and post-processing
+		bloom_effect = bloom_initialized ? bloom_effect : {},
+		bloom_enabled = true, // Start with bloom enabled
+		final_render_target = final_render_target,
+		bloom_composite_target = bloom_composite_target,
+		ship_render_target = ship_render_target,
 		font_atlas_texture = font_atlas_texture,
+
+		// debug UI
 		debug_ui_ctx = debug_ui_ctx,
 		debug_ui_enabled = debug_enabled,
 		debug_atlas_texture = debug_atlas_texture,
@@ -152,6 +182,26 @@ shutdown :: proc() {
 	// clean up shader manager
 	if g_state.space_shaders.shader_count > 0 {
 		shader_manager_destroy(&g_state.space_shaders)
+	}
+
+	// clean up bloom effect
+	if g_state.bloom_effect.initialized {
+		bloom_effect_destroy(&g_state.bloom_effect)
+	}
+
+	// clean up final render target
+	if g_state.final_render_target.id != 0 {
+		rl.UnloadRenderTexture(g_state.final_render_target)
+	}
+
+	// clean up bloom composite target
+	if g_state.bloom_composite_target.id != 0 {
+		rl.UnloadRenderTexture(g_state.bloom_composite_target)
+	}
+
+	// clean up ship render target
+	if g_state.ship_render_target.id != 0 {
+		rl.UnloadRenderTexture(g_state.ship_render_target)
 	}
 
 	// clean up font atlas texture
@@ -227,6 +277,23 @@ update :: proc() {
 		if g_state.space_shaders.shader_count > 0 {
 			shader_manager_resize(&g_state.space_shaders, i32(width), i32(height))
 		}
+
+		// resize bloom effect if initialized
+		if g_state.bloom_effect.initialized {
+			bloom_effect_resize(&g_state.bloom_effect, i32(width), i32(height))
+		}
+
+		// resize final render target
+		if g_state.final_render_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.final_render_target)
+			g_state.final_render_target = rl.LoadRenderTexture(i32(width), i32(height))
+		}
+
+		// resize bloom composite target
+		if g_state.bloom_composite_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.bloom_composite_target)
+			g_state.bloom_composite_target = rl.LoadRenderTexture(i32(width), i32(height))
+		}
 	}
 
 	// ppdate ship
@@ -289,7 +356,23 @@ update :: proc() {
 		if rl.IsKeyPressed(.F7) {
 			shader_manager_reload_shaders(&g_state.space_shaders)
 		}
-	}	// update timing
+	}	// test key bindings
+	if rl.IsKeyPressed(.B) {
+		// Initialize bloom on first press if not initialized
+		if !g_state.bloom_effect.initialized {
+			bloom_initialized := bloom_effect_init_default(&g_state.bloom_effect, i32(width), i32(height), file_reader_func)
+			if bloom_initialized {
+				fmt.printf("Bloom effect initialized via B key")
+			} else {
+				fmt.printf("Failed to initialize bloom effect")
+			}
+		}
+		// Toggle bloom
+		g_state.bloom_enabled = !g_state.bloom_enabled
+		fmt.printf("Bloom %s", g_state.bloom_enabled ? "enabled" : "disabled")
+	}
+
+	// update timing
 	g_state.frame += 1
 
 	if rl.IsKeyPressed(.ESCAPE) {
@@ -324,4 +407,48 @@ force_reload :: proc() -> bool {
 
 force_restart :: proc() -> bool {
 	return rl.IsKeyPressed(.F6)
+}
+
+// Hot reload render targets (called during hot reload)
+hot_reload_render_targets :: proc() {
+	width := f32(rl.GetScreenWidth())
+	height := f32(rl.GetScreenHeight())
+
+	// Recreate render targets if they don't exist or have wrong size
+	if g_state.final_render_target.id == 0 ||
+	   g_state.final_render_target.texture.width != i32(width) ||
+	   g_state.final_render_target.texture.height != i32(height) {
+
+		// Clean up old render target if it exists
+		if g_state.final_render_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.final_render_target)
+		}
+
+		g_state.final_render_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+		fmt.printf("Hot reload: Recreated final_render_target (%dx%d)\n", i32(width), i32(height))
+	}
+
+	if g_state.bloom_composite_target.id == 0 ||
+	   g_state.bloom_composite_target.texture.width != i32(width) ||
+	   g_state.bloom_composite_target.texture.height != i32(height) {
+
+		if g_state.bloom_composite_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.bloom_composite_target)
+		}
+
+		g_state.bloom_composite_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+		fmt.printf("Hot reload: Recreated bloom_composite_target (%dx%d)\n", i32(width), i32(height))
+	}
+
+	if g_state.ship_render_target.id == 0 ||
+	   g_state.ship_render_target.texture.width != i32(width) ||
+	   g_state.ship_render_target.texture.height != i32(height) {
+
+		if g_state.ship_render_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.ship_render_target)
+		}
+
+		g_state.ship_render_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+		fmt.printf("Hot reload: Recreated ship_render_target (%dx%d)\n", i32(width), i32(height))
+	}
 }
