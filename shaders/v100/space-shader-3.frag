@@ -43,8 +43,9 @@ void main() {
   float p21 = texture2D(prgm1Texture, uv + e.xz).x;
   float p12 = texture2D(prgm1Texture, uv + e.zy).x;
   vec3 grad = normalize(vec3(p21 - p01, p12 - p10, 1.0));
+  vec2 g = grad.xy;
 
-  grad *= 0.3;
+  grad *= 0.5;
 
   vec4 c = texture2D(prgm0Texture, uv + grad.xy);
   vec3 light = normalize(vec3(0.0, 0.5, 0.7));
@@ -52,10 +53,10 @@ void main() {
   float ref = -reflect(light, grad).z;
   float refMixMap = clamp(-ref, 0.0, 0.5);
   refMixMap = refMixMap * refMixMap;
-  float spec = pow(abs(max(-1.0, ref)), 20.0) * 3.0;
-  float spec_map = remap(ship_speed, 0.0, 1000.0, 1.0, 2.5);
-  vec4 col = c + vec4(spec * spec_map);
-  col = clamp(col, 0.005, 1.0);
+  float spec = pow(abs(max(-1.0, ref)), 20.0) * 2.0;
+  float spec_map = remap(ship_speed, 0.0, 1000.0, 1.0, 2.0);
+  vec4 col = c - vec4(clamp(spec, 0.0, 1.0)); // + vec4(spec * spec_map);
+  col = clamp(col, 0.0, 1.0);
   vec4 result = vec4(col.rgb, 1.0);
 
   // if (frame < 0) result += preventOptimizationToDebugUniformLoc(uv);

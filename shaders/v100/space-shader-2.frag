@@ -57,10 +57,10 @@ void main() {
   d *= max(min(1.0, float(frame)), 0.0) * clamp(time - 1.0, 0.0, 1.0);
   d = d * 0.5 + 0.5;
 
-  ouv *=  1.0 - ouv.yx;
-  float vig = ouv.x * ouv.y * 20.0;
-  vig = clamp(pow(vig, 0.125), 0.0, 1.0);
-  d = mix(d, d * vig, 0.1);
+  // ouv *=  1.0 - ouv.yx;
+  // float vig = ouv.x * ouv.y * 20.0;
+  // vig = clamp(pow(vig, 0.125), 0.0, 1.0);
+  // d = mix(d, d * vig, 0.1);
 
   vec4 result = vec4(d, 0.0, 0.0, 1.0);
 
