@@ -11,6 +11,8 @@ It focuses on **fast iteration, simple builds, and frictionless distribution**, 
 
 - Providing a frictionless hot-reload approach so we can just save the code and see the changes immediately;
 
+- A basic game example that includes layered rendering, independent post-processing effects, and a multi-pass shader manager to facilitate starting a new project;
+
 - Offer a WebAssembly build so we can run the games on browsers too;
 
 - Offer a single-file WebAssembly build philosophy (more on that below);
