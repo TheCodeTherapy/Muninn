@@ -135,6 +135,10 @@ Shows detailed usage information and all available commands.
 
 - Raylib (or at least its implementation vendored by Odin) does not expose a `LoadRenderTexture` method that allows to pick a specific `PixelFormat`. Because of that, I wrote my own implementation of [`LoadRenderTextureWithFormat`](https://github.com/TheCodeTherapy/Muninn/blob/master/src/gamelogic/render_texture_utils.odin#L8) and [`LoadRT_WithFallback`](https://github.com/TheCodeTherapy/Muninn/blob/master/src/gamelogic/render_texture_utils.odin#L79). The former just tries to create the `RenderTexture2D` with the chosen `PixelFormat` and the latter uses the former with a fall-through logic in case the wanted `PixelFormat` is not available (which is quite common in the WASM build). Weirdly, the WASM build works fine with `UNCOMPRESSED_R32G32B32A32` (FloatType) when the build targets `WebGL1` and `#version 100` shaders, but it falls through into `UNCOMPRESSED_R8G8B8A8` when the build targets `WebGL2` and `#version 300 es` shaders. I couldn't find the time to start investigating that yet.
 
+#### Why are you maintaining v100 and v300es shaders? Can't we just replace some keywords?
+
+- No, we can't. It's not as simple as finding `round(float x)` and replacing it with `floor(x + 0.5)` or equally simple stuff. Even the capacity to use non-constant loop bounds/conditions/steps in simple `for`/`while`/`do-while` loops, changes everything about the way you write shaders. The fastest and simplest solution to this issue will be to offer a PR to solve the two items above upstream, as soon as I can find the time to.
+
 ## Thanks and Credits:
 
 This project was inspired by one of [Karl Zylinski](https://github.com/karl-zylinski)'s projects, which you may find [here](https://github.com/karl-zylinski/odin-raylib-hot-reload-game-template). My version fits my personal development workflow and choices better, but you should definitely check out his work.
