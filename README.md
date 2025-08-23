@@ -111,10 +111,10 @@ Shows detailed usage information and all available commands.
 > odin run build.odin -file -- release
 > ```
 > ```bash
-> odin run build.odin -file -- web [--debug]
+> odin run build.odin -file -- web [--debug] [--webgl2]
 > ```
 > ```bash
-> odin run build.odin -file -- web-single [--debug]
+> odin run build.odin -file -- web-single [--debug] [--webgl2]
 > ```
 > ```bash
 > odin run build.odin -file -- help
