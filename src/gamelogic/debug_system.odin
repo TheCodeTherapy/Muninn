@@ -166,7 +166,7 @@ debug_system_render :: proc(ctx: ^mu.Context) {
 		ctx.style.colors[.BUTTON_HOVER] = {80, 80, 80, 200}     // Header hover
 		ctx.style.colors[.BUTTON_FOCUS] = {100, 100, 100, 220}  // Header focus
 
-		if mu.begin_window(ctx, "Debug System", {12, 12, 500, i32(g_state.resolution.y) - 24}) {
+		if mu.begin_window(ctx, "Debug System", {12, 12, 500, i32(g_state.resolution.y) - 24}, {.NO_CLOSE}) {
 			mu.layout_row(ctx, {-1}, 0)
 			mu.label(ctx, fmt.tprintf("Panels: %d/%d", debug_sys.panel_count, MAX_DEBUG_PANELS))
 
