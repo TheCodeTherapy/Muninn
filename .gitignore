@@ -6,4 +6,5 @@ raylib.dll
 linux/**
 build.exe
 docs/odin
+docs/raylib
 build/**

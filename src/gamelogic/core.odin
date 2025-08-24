@@ -218,6 +218,9 @@ init :: proc() {
 }
 
 shutdown :: proc() {
+	// clean up ship resources
+	cleanup_ship(&g_state.ship)
+
 	// clean up shader manager
 	if g_state.space_shaders.shader_count > 0 {
 		shader_manager_destroy(&g_state.space_shaders)
@@ -368,14 +371,14 @@ update :: proc() {
 		set_camera_mode(&g_state.camera, .FOLLOW_SHIP)
 	}
 	if rl.IsKeyPressed(.F2) {
-		// set up a boss fight area (fixed bounds with wrapping)
+		// set up a boss fight area (screen wrap mode)
 		bounds := rl.Rectangle{
 			x = g_state.ship.world_position.x - 400,
 			y = g_state.ship.world_position.y - 300,
 			width = 800,
 			height = 600,
 		}
-		set_camera_mode(&g_state.camera, .FIXED_BOUNDS, bounds)
+		set_camera_mode(&g_state.camera, .SCREEN_WRAP, bounds)
 	}
 
 	// update shader manager

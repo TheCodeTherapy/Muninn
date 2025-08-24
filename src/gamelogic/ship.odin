@@ -2,6 +2,7 @@ package gamelogic
 
 import "core:math"
 import rl "vendor:raylib"
+import "core:fmt"
 
 MAX_PROJECTILES :: 10000
 
@@ -30,11 +31,12 @@ Ship :: struct {
 	projectiles:    [MAX_PROJECTILES]Projectile,
 	ship_speed:     f32,            // Current speed magnitude
 	warp_speed:     f32,            // Warp speed multiplier (1.0 to MAX_WARP_MULTIPLIER)
+	trail:          Ship_Trail,     // Ship trail system
 }
 
 init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
 	start_pos := rl.Vector2{window_width / 2, window_height / 2}
-	return Ship {
+	ship := Ship {
 		scale = 30,
 		position = start_pos,
 		world_position = start_pos, // Start at same position as screen
@@ -48,7 +50,14 @@ init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
 		projectiles = [MAX_PROJECTILES]Projectile{},
 		ship_speed = 0.0,
 		warp_speed = 1.0,
+		trail = Ship_Trail{},
 	}
+
+	// Initialize the trail system
+	init_ship_trail(&ship.trail, ship.scale * 0.25) // Use half the ship scale as radius
+	reset_ship_trail(&ship.trail, ship.world_position, 0.0) // Initialize with world position
+
+	return ship
 }
 
 shoot_projectile :: proc(ship: ^Ship) {
@@ -151,31 +160,12 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 		ship.warp_speed = 1.0
 	}
 
-	// update world position based on camera mode
-	if camera.mode == .FIXED_BOUNDS && camera.enable_wrapping {
-		// In wrapping mode: update arena position, keep world position fixed at bounds center
-		ship.arena_position.x += ship.velocity.x * delta_time
-		ship.arena_position.y += ship.velocity.y * delta_time
+	// ALWAYS update world position accurately - no more freezing!
+	ship.world_position.x += ship.velocity.x * ship.warp_speed * delta_time
+	ship.world_position.y += ship.velocity.y * ship.warp_speed * delta_time
 
-		// Keep world position at the center of the bounds for static space background
-		ship.world_position = {
-			camera.fixed_bounds.x + camera.fixed_bounds.width / 2,
-			camera.fixed_bounds.y + camera.fixed_bounds.height / 2,
-		}
-	} else {
-		// Check if we just transitioned from arena mode - if so, restore world position from arena position
-		if ship.world_position.x == camera.fixed_bounds.x + camera.fixed_bounds.width / 2 &&
-		   ship.world_position.y == camera.fixed_bounds.y + camera.fixed_bounds.height / 2 {
-			// We were in arena mode, transfer arena position back to world position
-			ship.world_position = ship.arena_position
-		}
-
-		// Normal exploration mode - world position tracks ship movement through space
-		ship.world_position.x += ship.velocity.x * ship.warp_speed * delta_time
-		ship.world_position.y += ship.velocity.y * ship.warp_speed * delta_time
-		// Keep arena position synced with world position in exploration
-		ship.arena_position = ship.world_position
-	}
+	// Keep arena position synced with world position
+	ship.arena_position = ship.world_position
 
 	// update screen/local position based on camera mode
 	switch camera.mode {
@@ -184,37 +174,26 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 		ship.position.x = ship.world_position.x - camera.position.x + window_width / 2
 		ship.position.y = ship.world_position.y - camera.position.y + window_height / 2
 
-	case .FIXED_BOUNDS:
-		if camera.enable_wrapping {
-			// In wrapping mode, use arena position for screen positioning
-			ship.position.x = ship.arena_position.x - camera.position.x + window_width / 2
-			ship.position.y = ship.arena_position.y - camera.position.y + window_height / 2
-
-			// Apply screen wrapping - wrap arena position, not world position
-			if ship.position.x > window_width {
-				ship.arena_position.x -= window_width
-				ship.position.x = 0
-			} else if ship.position.x < 0 {
-				ship.arena_position.x += window_width
-				ship.position.x = window_width
-			}
-			if ship.position.y > window_height {
-				ship.arena_position.y -= window_height
-				ship.position.y = 0
-			} else if ship.position.y < 0 {
-				ship.arena_position.y += window_height
-				ship.position.y = window_height
-			}
-		} else {
-			// Fixed bounds without wrapping - use world position
-			ship.position.x = ship.world_position.x - camera.position.x + window_width / 2
-			ship.position.y = ship.world_position.y - camera.position.y + window_height / 2
-		}
-
-	case .FREE_EXPLORE:
-		// Free exploration mode - ship can move anywhere on screen
+	case .SCREEN_WRAP:
+		// In screen wrap mode, ship position relative to camera
 		ship.position.x = ship.world_position.x - camera.position.x + window_width / 2
 		ship.position.y = ship.world_position.y - camera.position.y + window_height / 2
+
+		// Apply screen wrapping - when ship goes off screen, teleport it to other side
+		if ship.position.x > window_width {
+			ship.world_position.x -= window_width
+			ship.position.x = 0
+		} else if ship.position.x < 0 {
+			ship.world_position.x += window_width
+			ship.position.x = window_width
+		}
+		if ship.position.y > window_height {
+			ship.world_position.y -= window_height
+			ship.position.y = 0
+		} else if ship.position.y < 0 {
+			ship.world_position.y += window_height
+			ship.position.y = window_height
+		}
 	}
 
 	// shooting
@@ -229,9 +208,15 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 
 	// update projectiles
 	update_projectiles(ship, delta_time, window_width, window_height)
+
+	// update ship trail - distance-based sampling in WORLD SPACE with thruster offset!
+	add_trail_position(&ship.trail, ship.world_position, ship.rotation, ship.ship_speed, MAX_SHIP_SPEED, g_state.global_time)
 }
 
 draw_ship :: proc(ship: ^Ship) {
+	g_state := get_state()
+	render_ship_trail(&ship.trail, g_state.global_time, &g_state.camera, g_state.resolution.x, g_state.resolution.y, ship.rotation)
+
 	radians := ship.rotation * rl.DEG2RAD
 
 	tip := rl.Vector2 {
@@ -247,10 +232,17 @@ draw_ship :: proc(ship: ^Ship) {
 		ship.position.y + math.sin(radians - rl.DEG2RAD * 135.0) * ship.scale * 0.7,
 	}
 
-	// draw ship triangle
-	rl.DrawLine(i32(tip.x), i32(tip.y), i32(left.x), i32(left.y), rl.WHITE)
-	rl.DrawLine(i32(tip.x), i32(tip.y), i32(right.x), i32(right.y), rl.WHITE)
-	rl.DrawLine(i32(left.x), i32(left.y), i32(right.x), i32(right.y), rl.WHITE)
+	// DrawLineEx :: proc(startPos, endPos: Vector2, thick: f32, color: Color) // Draw a line (using triangles/quads)
+	rl.DrawLineEx(tip, left, 5.0, rl.WHITE)
+	rl.DrawLineEx(tip, right, 5.0, rl.WHITE)
+	rl.DrawLineEx(left, right, 5.0, rl.WHITE)
+
+	// rl.DrawLine(i32(tip.x), i32(tip.y), i32(left.x), i32(left.y), rl.BLACK)
+	// rl.DrawLine(i32(tip.x), i32(tip.y), i32(right.x), i32(right.y), rl.BLACK)
+	// rl.DrawLine(i32(left.x), i32(left.y), i32(right.x), i32(right.y), rl.BLACK)
+
+	// draw ship's tringle filled
+	rl.DrawTriangle(tip, right, left, {0, 0, 0, 150})
 
 	// thrust indicator
 	if rl.IsKeyDown(rl.KeyboardKey.UP) || rl.IsKeyDown(rl.KeyboardKey.W) {
@@ -269,9 +261,7 @@ draw_ship :: proc(ship: ^Ship) {
 draw_ship_to_texture :: proc(ship: ^Ship) -> rl.Texture2D {
 	g_state := get_state()
 
-	// Safety check: ensure render target is valid
 	if g_state.ship_render_target.id == 0 {
-		// Return empty texture if render target is not initialized
 		return rl.Texture2D{}
 	}
 
@@ -281,4 +271,66 @@ draw_ship_to_texture :: proc(ship: ^Ship) -> rl.Texture2D {
 	rl.EndTextureMode()
 
 	return g_state.ship_render_target.texture
+}
+
+// cleanup ship resources
+// Hot reload ship system
+ship_hot_reload :: proc(ship: ^Ship) -> bool {
+	fmt.printf("=== HOT RELOADING SHIP SYSTEM ===\n")
+
+	// Store current state for continuity
+	current_scale := ship.scale
+	current_position := ship.position
+	current_world_position := ship.world_position
+	current_arena_position := ship.arena_position
+	current_velocity := ship.velocity
+	current_rotation := ship.rotation
+	current_acceleration := ship.acceleration
+	current_friction := ship.friction
+	current_shoot_cooldown := ship.shoot_cooldown
+	current_shoot_interval := ship.shoot_interval
+	current_projectiles := ship.projectiles
+	current_ship_speed := ship.ship_speed
+	current_warp_speed := ship.warp_speed
+
+	fmt.printf("Ship state preserved: pos=(%.2f,%.2f), world_pos=(%.2f,%.2f), vel=(%.2f,%.2f), rot=%.2f\n",
+		current_position.x, current_position.y,
+		current_world_position.x, current_world_position.y,
+		current_velocity.x, current_velocity.y,
+		current_rotation)
+
+	// Hot reload the ship trail
+	if ship.trail.initialized {
+		fmt.printf("Hot reloading ship trail...\n")
+		if !ship_trail_hot_reload(&ship.trail) {
+			fmt.printf("ERROR: Ship hot reload: Failed to reload trail\n")
+			return false
+		}
+		fmt.printf("Ship trail hot reload successful\n")
+	} else {
+		fmt.printf("Ship trail not initialized, skipping trail hot reload\n")
+	}
+
+	// Restore all state
+	ship.scale = current_scale
+	ship.position = current_position
+	ship.world_position = current_world_position
+	ship.arena_position = current_arena_position
+	ship.velocity = current_velocity
+	ship.rotation = current_rotation
+	ship.acceleration = current_acceleration
+	ship.friction = current_friction
+	ship.shoot_cooldown = current_shoot_cooldown
+	ship.shoot_interval = current_shoot_interval
+	ship.projectiles = current_projectiles
+	ship.ship_speed = current_ship_speed
+	ship.warp_speed = current_warp_speed
+
+	fmt.printf("Ship state restored successfully\n")
+	fmt.printf("=== SHIP HOT RELOAD COMPLETE ===\n")
+	return true
+}
+
+cleanup_ship :: proc(ship: ^Ship) {
+	destroy_ship_trail(&ship.trail)
 }

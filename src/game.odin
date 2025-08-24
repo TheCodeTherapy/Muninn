@@ -91,6 +91,10 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	g = (^Game_Memory)(mem)
 	gamelogic.set_state(g)
 
+	// re-set file reader function after DLL reload (I'm not sure if I should do this)
+	gamelogic.set_file_reader(read_entire_file)
+	fmt.printf("HOT RELOAD: File reader function re-initialized\n")
+
 	fmt.printf("HOT RELOAD: Reloading shaders...\n")
 	success := gamelogic.shader_manager_reload_shaders(&g.space_shaders)
 	if success {
@@ -129,6 +133,14 @@ game_hot_reloaded :: proc(mem: rawptr) {
 		} else {
 			fmt.printf("HOT RELOAD: BCS effect reload FAILED!\n")
 		}
+	}
+
+	fmt.printf("HOT RELOAD: Reinitializing ship system...\n")
+	ship_success := gamelogic.ship_hot_reload(&g.ship)
+	if ship_success {
+		fmt.printf("HOT RELOAD: Ship system reload successful!\n")
+	} else {
+		fmt.printf("HOT RELOAD: Ship system reload FAILED!\n")
 	}
 }
 

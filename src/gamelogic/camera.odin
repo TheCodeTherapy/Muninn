@@ -11,27 +11,24 @@ PIXEL_WINDOW_HEIGHT :: 180
 // camera modes for different gameplay scenarios
 Camera_Mode :: enum {
 	FOLLOW_SHIP,    // normal exploration - camera follows ship
-	FIXED_BOUNDS,   // boss fights - camera shows fixed area with screen wrapping
-	FREE_EXPLORE,   // camera can move independently
+	SCREEN_WRAP,    // boss fights - camera shows fixed area with screen wrapping
 }
 
 // Camera state for the game world
 Camera_State :: struct {
-	mode:           Camera_Mode,
-	position:       rl.Vector2,    // current camera position in world space
-	target:         rl.Vector2,    // target position (ship + offset based on movement)
-	zoom:           f32,
+	mode:                     Camera_Mode,  // follow mode or screen wrap mode
+	position:                 rl.Vector2,   // current camera position in world space
+	target:                   rl.Vector2,   // target position (ship position)
+	zoom:                     f32,
 
-	smooth_factor:  f32,           // how smoothly camera follows (lerped)
-	smooth_factor_target: f32,     // how smoothly camera follows (0.1 = smooth, 1.0 = instant)
+	smooth_factor:            f32,          // how smoothly camera follows (lerped)
+	smooth_factor_target:     f32,          // how smoothly camera follows (0.1 = smooth, 1.0 = instant)
 
-	// camera offset system for looking ahead
-	offset_multiplier: f32,        // how far ahead to look (0 = no offset, 1 = full offset)
-	max_velocity:      f32,        // maximum velocity for normalization (clamp velocity to this)
+	world_lookahead_position: rl.Vector2,   // ship position + lookahead offset
+	offset_multiplier:        f32,          // how far ahead to look (0 = no offset, 1 = full offset)
+	max_velocity:             f32,          // maximum velocity for normalization (clamp velocity to this)
 
-	// for fixed bounds mode (boss fights, etc.)
-	fixed_bounds:   rl.Rectangle,  // fixed area bounds
-	enable_wrapping: bool,         // whether ship should wrap around screen edges
+	wrap_bounds:              rl.Rectangle, // screen wrap area bounds
 }
 
 init_camera :: proc() -> Camera_State {
@@ -44,10 +41,10 @@ init_camera :: proc() -> Camera_State {
 		smooth_factor = 0.12,
 		smooth_factor_target = 0.12,
 
-		offset_multiplier = 30.0, // look-ahead distance
+		world_lookahead_position = {0, 0},
+		offset_multiplier = 30.0,
 		max_velocity = 1000.0,
-		fixed_bounds = {0, 0, 0, 0},
-		enable_wrapping = false,
+		wrap_bounds = {0, 0, 0, 0},
 	}
 }
 
@@ -60,69 +57,51 @@ update_camera :: proc(camera: ^Camera_State, ship_world_pos: rl.Vector2, ship_ve
 		f32(rl.GetFPS()),
 	)
 
+	// calculate lookahead position (for now for debug vis)
+	velocity_magnitude := vector_magnitude(ship_velocity)
+	clamped_velocity := clamp(velocity_magnitude, 0, camera.max_velocity)
+	velocity_factor := camera.max_velocity > 0 ? clamped_velocity / camera.max_velocity : 0.0
+	direction := direction_from_angle(ship_rotation)
+
+	// scale direction by velocity factor and multiplier to get offset
+	offset := rl.Vector2{
+		direction.x * velocity_factor * camera.offset_multiplier,
+		direction.y * velocity_factor * camera.offset_multiplier,
+	}
+
+	// store lookahead position (ship + offset)
+	camera.world_lookahead_position = rl.Vector2{
+		ship_world_pos.x + offset.x,
+		ship_world_pos.y + offset.y,
+	}
+
 	switch camera.mode {
 	case .FOLLOW_SHIP:
-		// look-ahead offset based on ship's movement
 		camera.smooth_factor_target = 0.12
-
-		velocity_magnitude := vector_magnitude(ship_velocity)
-		clamped_velocity := clamp(velocity_magnitude, 0, camera.max_velocity)
-		velocity_factor := camera.max_velocity > 0 ? clamped_velocity / camera.max_velocity : 0.0 // 0 to 1
-
-		direction := direction_from_angle(ship_rotation) // direction vector from ship's rotation
-
-		// scale direction by velocity factor and multiplier to get offset
-		offset := rl.Vector2{
-			direction.x * velocity_factor * camera.offset_multiplier,
-			direction.y * velocity_factor * camera.offset_multiplier,
-		}
-
-		// camera target is ship position + look-ahead offset
-		camera.target = rl.Vector2{
-			ship_world_pos.x + offset.x,
-			ship_world_pos.y + offset.y,
-		}
-
-		// smooth camera movement
-		camera.position.x += ease(camera.target.x, camera.position.x, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
-		camera.position.y += ease(camera.target.y, camera.position.y, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
-
-	case .FIXED_BOUNDS:
-		camera.smooth_factor_target = 0.001
-		// camera target is centered on the fixed bounds area
-		camera.target.x = camera.fixed_bounds.x + camera.fixed_bounds.width / 2
-		camera.target.y = camera.fixed_bounds.y + camera.fixed_bounds.height / 2
-
-		// smooth camera movement
-		camera.position.x += ease(camera.target.x, camera.position.x, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
-		camera.position.y += ease(camera.target.y, camera.position.y, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
-
-	case .FREE_EXPLORE:
-		// camera can move independently (for future use)
-		// for now it just follow the ship
 		camera.target = ship_world_pos
-		camera.position = camera.target
+
+		camera.position.x += ease(camera.target.x, camera.position.x, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
+		camera.position.y += ease(camera.target.y, camera.position.y, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
+
+	case .SCREEN_WRAP:
+		camera.smooth_factor_target = 0.001
+		camera.target.x = camera.wrap_bounds.x + camera.wrap_bounds.width / 2
+		camera.target.y = camera.wrap_bounds.y + camera.wrap_bounds.height / 2
+
+		camera.position.x += ease(camera.target.x, camera.position.x, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
+		camera.position.y += ease(camera.target.y, camera.position.y, camera.smooth_factor, delta_time, f32(rl.GetFPS()))
 	}
 }
 
 set_camera_mode :: proc(camera: ^Camera_State, mode: Camera_Mode, bounds: rl.Rectangle = {}) {
-	previous_mode := camera.mode
 	camera.mode = mode
 
 	switch mode {
 	case .FOLLOW_SHIP:
-		camera.enable_wrapping = false
-		// if transitioning from arena mode, sync world position to current arena position
-		if previous_mode == .FIXED_BOUNDS {
-			// TODO: I'll probably add some visual effect here
-		}
+		// normal follow ship mode so no special setup needed
 
-	case .FIXED_BOUNDS:
-		camera.fixed_bounds = bounds
-		camera.enable_wrapping = true
-
-	case .FREE_EXPLORE:
-		camera.enable_wrapping = false
+	case .SCREEN_WRAP:
+		camera.wrap_bounds = bounds
 	}
 }
 
@@ -132,8 +111,8 @@ game_camera :: proc() -> rl.Camera2D {
 
 	return {
 		zoom = (h / PIXEL_WINDOW_HEIGHT) * g_state.camera.zoom,
-		target = g_state.camera.position, // Use current smoothly interpolated position
-		offset = { w/2, h/2 },
+		target = g_state.camera.position, // smoothly interpolated position
+		offset = { w / 2, h / 2 },
 	}
 }
 
@@ -144,48 +123,41 @@ debug_draw_camera_lookahead :: proc(ship_screen_pos: rl.Vector2, ship_velocity: 
 
 		camera := &g_state.camera
 
-		// calculate the same offset as in update_camera
+		// convert world lookahead position to screen-space	position
+		lookahead_screen_pos := rl.Vector2{
+			camera.world_lookahead_position.x - camera.position.x + f32(rl.GetScreenWidth()) / 2,
+			camera.world_lookahead_position.y - camera.position.y + f32(rl.GetScreenHeight()) / 2,
+		}
+
+		// draw red line from ship center to look-ahead target
+		rl.DrawLineV(ship_screen_pos, lookahead_screen_pos, rl.RED)
+		rl.DrawCircleV(lookahead_screen_pos, 3.0, rl.RED) // small circle at the end of the vector
+
+		// calculate velocity info for display
 		velocity_magnitude := vector_magnitude(ship_velocity)
 		clamped_velocity := clamp(velocity_magnitude, 0, camera.max_velocity)
 		velocity_factor := camera.max_velocity > 0 ? clamped_velocity / camera.max_velocity : 0.0
 
-		direction := direction_from_angle(ship_rotation)
-
-		// scale the offset for screen display (convert world units to screen pixels)
-		game_cam := game_camera()
-		screen_offset := rl.Vector2{
-			direction.x * velocity_factor * camera.offset_multiplier * game_cam.zoom,
-			direction.y * velocity_factor * camera.offset_multiplier * game_cam.zoom,
-		}
-
-		// draw red line from ship center to look-ahead target
-		target_screen_pos := rl.Vector2{
-			ship_screen_pos.x + screen_offset.x,
-			ship_screen_pos.y + screen_offset.y,
-		}
-
-		rl.DrawLineV(ship_screen_pos, target_screen_pos, rl.RED)
-		rl.DrawCircleV(target_screen_pos, 3.0, rl.RED) // small circle at the end of the vector
-
 		// draw velocity factor as text near ship
 		velocity_text := fmt.ctprintf("Vel: %.1f (%.2f%%)", velocity_magnitude, velocity_factor * 100)
-		rl.DrawText(velocity_text, i32(ship_screen_pos.x + 40), i32(ship_screen_pos.y - 20), 12, rl.WHITE)
+		rl.DrawText(velocity_text, i32(ship_screen_pos.x + 40), i32(ship_screen_pos.y - 20), 20, {255, 255, 255, 200})
 	}
 }
 
-// for hot-reloading
 camera_hot_reload :: proc(camera: ^Camera_State) {
 	// store current position to maintain continuity
 	current_pos := camera.position
 	current_target := camera.target
+	current_lookahead := camera.world_lookahead_position
 	current_mode := camera.mode
 
-	// completely reinitialize camera with fresh defaults
+	// reinitialize camera with fresh defaults
 	camera^ = init_camera()
 
-	// restore position/target/mode to maintain gameplay continuity
+	// restore position / target / lookahead / mode to maintain continuity
 	camera.position = current_pos
 	camera.target = current_target
+	camera.world_lookahead_position = current_lookahead
 	camera.mode = current_mode
 }
 
