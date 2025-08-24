@@ -134,7 +134,8 @@ init_ship_trail :: proc(trail: ^Ship_Trail, ship_radius: f32) -> bool {
 
 	rl.UpdateMeshBuffer(trail.mesh, 0, raw_data(trail.vertices[:]), len(trail.vertices) * size_of(f32), 0)
 	rl.UpdateMeshBuffer(trail.mesh, 1, raw_data(trail.uvs[:]), len(trail.uvs) * size_of(f32), 0)
-	rl.UpdateMeshBuffer(trail.mesh, 6, raw_data(trail.indices[:]), len(trail.indices) * size_of(u16), 0)
+	// Note: Indices are handled separately in Raylib, not through UpdateMeshBuffer with index 2
+	// Index 2 would be for normals, which we don't use in this trail system
 
 	trail.initialized = true
 	return true
@@ -300,9 +301,9 @@ add_trail_position :: proc(
 }
 
 update_trail_geometry :: proc(trail: ^Ship_Trail, current_time: f32, camera: ^Camera_State, window_width: f32, window_height: f32, ship_rotation: f32) {
-	if !trail.initialized || trail.position_count < 2 {
-		return
-	}
+	// if !trail.initialized || trail.position_count < 2 {
+	// 	return
+	// }
 
 	last_valid_pos := rl.Vector2{}
 	if trail.position_count > 0 {
@@ -467,7 +468,8 @@ update_trail_geometry :: proc(trail: ^Ship_Trail, current_time: f32, camera: ^Ca
 	// update mesh on GPU
 	rl.UpdateMeshBuffer(trail.mesh, 0, raw_data(trail.vertices[:]), len(trail.vertices) * size_of(f32), 0)
 	rl.UpdateMeshBuffer(trail.mesh, 1, raw_data(trail.uvs[:]), len(trail.uvs) * size_of(f32), 0)
-	rl.UpdateMeshBuffer(trail.mesh, 6, raw_data(trail.indices[:]), len(trail.indices) * size_of(u16), 0)
+	// Note: Indices are handled separately in Raylib, not through UpdateMeshBuffer with index 2
+	// Index 2 would be for normals, which we don't use in this trail system
 
 	// store the number of active triangles for rendering
 	trail.active_triangle_count = count - 1

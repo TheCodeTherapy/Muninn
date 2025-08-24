@@ -79,5 +79,5 @@ void main() {
   float alpha = (1.3 - uv.x) * timeMask * opacity;
   vec3 finalColor = vec3(fire) * fireCol * 5.0;
 
-  gl_FragColor = vec4(finalColor * finalColor * alpha, alpha) * 2.5;
+  gl_FragColor = vec4(finalColor * finalColor * alpha, alpha);
 }
