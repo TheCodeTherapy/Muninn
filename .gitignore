@@ -8,3 +8,4 @@ build.exe
 docs/odin
 docs/raylib
 build/**
+docs/
