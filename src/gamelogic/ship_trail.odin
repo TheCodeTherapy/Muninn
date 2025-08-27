@@ -131,6 +131,9 @@ init_ship_trail :: proc(trail: ^Ship_Trail, ship_radius: f32) -> bool {
 
 	// upload mesh to GPU
 	rl.UploadMesh(&trail.mesh, false)
+	trail.mesh.vertices = nil
+	trail.mesh.texcoords = nil
+	trail.mesh.indices = nil
 
 	rl.UpdateMeshBuffer(trail.mesh, 0, raw_data(trail.vertices[:]), len(trail.vertices) * size_of(f32), 0)
 	rl.UpdateMeshBuffer(trail.mesh, 1, raw_data(trail.uvs[:]), len(trail.uvs) * size_of(f32), 0)
@@ -149,7 +152,8 @@ ship_trail_hot_reload :: proc(trail: ^Ship_Trail) -> bool {
 
 	trail.hot_reloading = true
 
-	if trail.mesh.vertices != nil && trail.mesh.vaoId != 0 {
+	if trail.mesh.vaoId != 0 {
+		// Ensure Raylib won’t try to free memory it didn’t allocate
 		trail.mesh.vertices = nil
 		trail.mesh.texcoords = nil
 		trail.mesh.indices = nil
@@ -232,17 +236,24 @@ destroy_ship_trail :: proc(trail: ^Ship_Trail) {
 
 	defer trail.initialized = false
 
-	if trail.mesh.vertices != nil {
+	// make sure Raylib won't try to free unallocated memory
+	trail.mesh.vertices  = nil
+	trail.mesh.texcoords = nil
+	trail.mesh.indices   = nil
+
+	if trail.mesh.vaoId != 0 {
 		rl.UnloadMesh(trail.mesh)
+		trail.mesh = rl.Mesh{}
 	}
 
 	if trail.material.shader.id != 0 {
 		rl.UnloadMaterial(trail.material)
+		trail.material = rl.Material{}
 	}
 
-	if trail.shader.id != 0 {
-		rl.UnloadShader(trail.shader)
-	}
+	trail.position_count        = 0
+	trail.head_index            = 0
+	trail.active_triangle_count = 0
 }
 
 add_trail_position :: proc(
@@ -294,7 +305,7 @@ add_trail_position :: proc(
 	// update last world position (using thruster position)
 	trail.last_world_pos = thruster_world_pos
 
-	trail.head_index = (trail.head_index + 1) % MAX_TRAIL_LENGTH
+		trail.head_index = (trail.head_index + 1) % MAX_TRAIL_LENGTH
 	if trail.position_count < MAX_TRAIL_LENGTH {
 		trail.position_count += 1
 	}
@@ -502,7 +513,7 @@ render_ship_trail :: proc(trail: ^Ship_Trail, current_time: f32, camera: ^Camera
 	aspect_ratio = math.clamp(aspect_ratio * 0.5, 1.0, 20.0)
 	rl.SetShaderValue(trail.shader, trail.aspect_ratio_uniform, &aspect_ratio, .FLOAT)
 
-	// only render if we have active triangles
+		// only render if we have active triangles
 	if trail.active_triangle_count > 0 {
 		rl.BeginBlendMode(.ALPHA)
 
