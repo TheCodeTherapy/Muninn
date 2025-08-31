@@ -65,12 +65,12 @@ render_game :: proc() {
 	rl.BeginTextureMode(g_state.final_render_target)
 	rl.ClearBackground(rl.BLACK)
 	rl.BeginBlendMode(.ALPHA_PREMULTIPLY)
-	defer rl.EndBlendMode()
 
 	draw_texture(space_background_texture) // step 9: render space background to final RT
 	draw_texture(trail_texture) // step 10: render trail to final RT
 	draw_texture(ship_texture) // step 11: render ship to final RT
 
+  rl.EndBlendMode()
 	rl.EndTextureMode()
 
 	// step 12: apply bloom to final render target's texture
@@ -78,6 +78,13 @@ render_game :: proc() {
 
 	// step 13: render final texture to screen
 	draw_texture(final_texture)
+
+  when #config(ODIN_DEBUG, true) && ODIN_OS == .JS {
+		if !g_state.debug_ui_enabled {
+      rl.DrawText("debug build: Press P to open debug UI", 13, 13, 20, {210, 210, 210, 120})
+    }
+	}
+
 
 	// step 14: render debug UI on top
 	when #config(ODIN_DEBUG, true) {
