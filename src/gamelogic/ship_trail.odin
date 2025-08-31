@@ -7,7 +7,7 @@ import rl "vendor:raylib"
 MAX_TRAIL_LENGTH :: 120
 TRAIL_WIDTH_FACTOR :: 2.0
 TRAIL_OFFSET :: 2.5
-TRAIL_SMOOTHING_SEGMENTS :: 30
+TRAIL_SMOOTHING_SEGMENTS :: 3
 
 // trail position (I'll store world space only)
 Trail_Position :: struct {
@@ -529,6 +529,19 @@ render_ship_trail :: proc(trail: ^Ship_Trail, current_time: f32, camera: ^Camera
 
 		rl.EndBlendMode()
 	}
+}
+
+render_ship_trail_to_texture :: proc(trail: ^Ship_Trail, trail_render_target: rl.RenderTexture2D, current_time: f32, camera: ^Camera_State, window_width: f32, window_height: f32, ship_rotation: f32) -> rl.Texture2D {
+	if trail_render_target.id == 0 {
+		return rl.Texture2D{}
+	}
+
+	rl.BeginTextureMode(trail_render_target)
+	rl.ClearBackground(rl.Color{0, 0, 0, 0})
+	render_ship_trail(trail, current_time, camera, window_width, window_height, ship_rotation)
+	rl.EndTextureMode()
+
+	return trail_render_target.texture
 }
 
 reset_ship_trail :: proc(trail: ^Ship_Trail, world_pos: rl.Vector2, current_time: f32) {

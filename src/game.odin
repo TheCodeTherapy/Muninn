@@ -28,8 +28,9 @@ created.
 package game
 
 import "core:fmt"
+
 import rl "vendor:raylib"
-import gamelogic "./gamelogic"
+import "gamelogic"
 
 Game_Memory :: gamelogic.Game_State
 
@@ -38,9 +39,10 @@ g: ^Game_Memory
 @(export)
 game_update :: proc() {
 	gamelogic.update()
+	gamelogic.update_debug_gui()
 	gamelogic.draw()
 
-	// Everything on tracking allocator is valid until end-of-frame.
+	// everything on tracking allocator is valid until end-of-frame
 	free_all(context.temp_allocator)
 }
 
@@ -59,6 +61,9 @@ game_init :: proc() {
 	gamelogic.init()
 	g = gamelogic.get_state()
 	game_hot_reloaded(g)
+
+	// Initialize debug GUI
+	gamelogic.init_debug_gui()
 }
 
 @(export)
@@ -90,58 +95,50 @@ game_memory_size :: proc() -> int {
 game_hot_reloaded :: proc(mem: rawptr) {
 	g = (^Game_Memory)(mem)
 	gamelogic.set_state(g)
+	fmt.printf("HOT RELOAD: Game state pointer updated to %p\n", g)
 
-	// re-set file reader function after DLL reload (I'm not sure if I should do this)
 	gamelogic.set_file_reader(read_entire_file)
-	fmt.printf("HOT RELOAD: File reader function re-initialized\n")
-
-	fmt.printf("HOT RELOAD: Reloading shaders...\n")
-	success := gamelogic.shader_manager_reload_shaders(&g.space_shaders)
-	if success {
-		fmt.printf("HOT RELOAD: Shader reload successful!\n")
-	} else {
-		fmt.printf("HOT RELOAD: Shader reload FAILED!\n")
-	}
-
-	fmt.printf("HOT RELOAD: Completely reinitializing camera system...\n")
+	gamelogic.space_system_reload_shaders(&g.space)
 	gamelogic.camera_hot_reload(&g.camera)
-	fmt.printf("HOT RELOAD: Camera system reinitialized!\n")
-
-	fmt.printf("HOT RELOAD: Checking render targets...\n")
 	gamelogic.hot_reload_render_targets()
-	fmt.printf("HOT RELOAD: Render targets checked!\n")
 
-	fmt.printf("HOT RELOAD: Reinitializing debug system...\n")
-	gamelogic.debug_system_hot_reload()
-	fmt.printf("HOT RELOAD: Debug system reinitialized!\n")
-
-	if g.bloom_effect.initialized {
-		fmt.printf("HOT RELOAD: Reinitializing bloom effect...\n")
-		bloom_success := gamelogic.bloom_effect_hot_reload(&g.bloom_effect)
-		if bloom_success {
-			fmt.printf("HOT RELOAD: Bloom effect reload successful!\n")
-		} else {
-			fmt.printf("HOT RELOAD: Bloom effect reload FAILED!\n")
-		}
-	}
-
-	if g.bcs_effect.initialized {
-		fmt.printf("HOT RELOAD: Reinitializing BCS effect...\n")
-		bcs_success := gamelogic.bcs_effect_hot_reload(&g.bcs_effect)
-		if bcs_success {
-			fmt.printf("HOT RELOAD: BCS effect reload successful!\n")
-		} else {
-			fmt.printf("HOT RELOAD: BCS effect reload FAILED!\n")
+	fmt.printf("HOT RELOAD: Reinitializing PostFX effects...\n")
+	for &instance in g.postfx_instances {
+		switch instance.type {
+		case .BCS:
+			if instance.bcs_effect != nil && instance.bcs_effect.initialized {
+				fmt.printf("HOT RELOAD: Reinitializing %s...\n", instance.name)
+				success := gamelogic.bcs_effect_hot_reload(instance.bcs_effect)
+				if !success {
+					fmt.printf("HOT RELOAD: %s reload FAILED!\n", instance.name)
+				}
+			}
+		case .BLOOM_SPACE, .BLOOM_TRAIL, .BLOOM_SHIP, .BLOOM_FINAL:
+			if instance.bloom_effect != nil && instance.bloom_effect.initialized {
+				fmt.printf("HOT RELOAD: Reinitializing %s...\n", instance.name)
+				success := gamelogic.bloom_effect_hot_reload(instance.bloom_effect)
+				if !success {
+					fmt.printf("HOT RELOAD: %s reload FAILED!\n", instance.name)
+				}
+			}
 		}
 	}
 
 	fmt.printf("HOT RELOAD: Reinitializing ship system...\n")
 	ship_success := gamelogic.ship_hot_reload(&g.ship)
-	if ship_success {
-		fmt.printf("HOT RELOAD: Ship system reload successful!\n")
-	} else {
+	if !ship_success {
 		fmt.printf("HOT RELOAD: Ship system reload FAILED!\n")
 	}
+
+	fmt.printf("HOT RELOAD: Reinitializing ship trail system...\n")
+	trail_success := gamelogic.ship_trail_hot_reload(&g.ship_trail)
+	if !trail_success {
+		fmt.printf("HOT RELOAD: Ship trail system reload FAILED!\n")
+	}
+
+	fmt.printf("HOT RELOAD: Reinitializing debug GUI...\n")
+	gamelogic.destroy_debug_gui() // Clean up first to prevent leaks
+	gamelogic.init_debug_gui()
 }
 
 @(export)

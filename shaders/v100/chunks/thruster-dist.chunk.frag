@@ -58,8 +58,9 @@ float thrustersDist(vec2 uv) {
     relative_pos.x * sin_a + relative_pos.y * cos_a
   );
 
+  float normalized_speed = remap(ship_speed, 0.0, 1000.0, 0.0, 1.0);
   float speed_map = remap(ship_speed, 0.0, 1000.0, 30.0, 15.0);
-  float offset_map = remap(ship_speed, 0.0, 1000.0, -70.0, 20.0);
+  float offset_map = remap(ship_speed, 0.0, 1000.0, -70.0, 30.0);
   float alpha_map = remap(ship_speed, 0.0, 2000.0, 0.0, 1.0);
 
   float mult_map = remap(ship_speed, 0.0, 1000.0, 1.0, 3.0);
@@ -70,8 +71,10 @@ float thrustersDist(vec2 uv) {
   float r = -(uv.x * uv.x + uv.y * uv.y);
   float z = 0.5 + 0.5 * sin((r + time * speed) / distribution);
   float a = clamp(smoothstep(-0.1, 0.2, size - length(uv * 2.0)), 0.0, 0.5);
-  float shape = sdHyperbola(uv, shapeK, 1.0);
-  shape = -sdUnevenCapsuleY(rotate(uv, -PI * 0.5), r1_map, r2_map, height);
+
+  float distA = sdHyperbola(uv, shapeK, 1.0);
+  float distB = -sdUnevenCapsuleY(rotate(uv, -PI * 0.5), r1_map, r2_map, height);
+  float shape = distB * normalized_speed * alpha_map * 2.0;
   float h = clamp(shape, 0.0, 1.0) * overdraw;
   float alpha = clamp(a * h, 0.0, 1.0) * clamp(alpha_map, 0.0, 1.0);
   return z * alpha;

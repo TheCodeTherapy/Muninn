@@ -1,78 +1,88 @@
 package gamelogic
 
 import "core:fmt"
-import "core:math"
 import rl "vendor:raylib"
 import mu "vendor:microui"
 
+debug :: #config(ODIN_DEBUG, false)
+
 // Feature flag: Use WebGL2 context and shaders (false = WebGL1, true = WebGL2)
-// WebGL2 has known vertex attribute issues with Raylib (GitHub issue #4330)
+// WebGL2 has known vertex attribute issues with Raylib + Emscripten (GitHub issue #4330)
 // TODO: I should figure this shit out.
 // Note: For now controlled via -define:USE_WEBGL2=true/false compiler flag
 
-// file reader function that will be set by the game package
 file_reader_func: proc(filename: string, allocator := context.allocator, loc := #caller_location) -> (data: []byte, success: bool)
 
-// set the file reader function (called from game package)
 set_file_reader :: proc(reader: proc(filename: string, allocator := context.allocator, loc := #caller_location) -> (data: []byte, success: bool)) {
   file_reader_func = reader
 }
 
-// Render timing data for performance monitoring
-Render_Timing :: struct {
-	step1_space_background:   f32,                // Time for space shader rendering
-	step2_ship_render:        f32,                // Time for ship texture rendering
-	step3_background_draw:    f32,                // Time for background draw to final target
-	step4_ship_draw:          f32,                // Time for ship draw to final target
-	step5_bloom_or_final:     f32,                // Time for bloom OR final draw to screen
-	step6_debug_ui:           f32,                // Time for debug UI rendering
-	total_render_time:        f32,                // Total rendering time
+File_Reader :: proc(filename: string, allocator := context.allocator, loc := #caller_location) -> (data: []byte, success: bool)
 
-	// Averaging data (circular buffer)
-	total_time_history:       [1000]f32,          // Past 1000 frame times
-	history_index:            int,                // Current position in circular buffer
-	history_count:            int,                // Number of valid entries (0-1000)
-	average_render_time:      f32,                // Calculated average
+MAX_DEBUG_PANELS :: 16
+MAX_RENDER_TARGETS :: 0
+
+Debug_Panel_Proc :: proc(ctx: ^mu.Context)
+
+Debug_Panel :: struct {
+	name:           string,
+	render_proc:    Debug_Panel_Proc,
+	enabled:        bool,
+	active:         bool, // whether this slot is used
+	start_unfolded: bool, // whether this panel starts expanded
+}
+
+Debug_System :: struct {
+	panels:      [MAX_DEBUG_PANELS]Debug_Panel, // fixed size arrays
+	panel_count: int,
+	initialized: bool,
+	enabled:     bool,
 }
 
 Game_State :: struct {
 	// display and timing
-	resolution:               rl.Vector2,         // viewport resolution
-	fps:                      int,                // frames per second
-	delta_time:               f32,                // time since last frame
-	global_time:              f32,                // total time since start
-	frame:                    int,                // frame count
+	resolution:                rl.Vector2,             // viewport resolution
+	fps:                       int,                    // frames per second
+	delta_time:                f32,                    // time since last frame
+	global_time:               f32,                    // total time since start
+	frame:                     int,                    // frame count
 
 	// game objects/systems
-	ship:                     Ship,               // player ship
-	camera:                   Camera_State,       // camera state
-	space_shaders:            Shader_Manager,     // space shaders (multi-pass)
+	ship:                      Ship,                   // player ship
+	ship_trail:                Ship_Trail,             // ship trail system
+	camera:                    Camera_State,           // camera state
+	space:                     Space_System,           // space background system
 
 	// post-processing effects
-	bloom_effect:             Bloom_Effect,       // Global bloom post-processing
-	bloom_enabled:            bool,               // Toggle for bloom effect
-	bcs_effect:               BCS_Effect,         // Background BCS post-processing
-	bcs_enabled:              bool,               // Toggle for BCS effect
-	space_background_texture: rl.Texture2D,       // space shader output texture
-	ship_render_target:       rl.RenderTexture2D, // ship and projectiles with transparent background
-	final_render_target:      rl.RenderTexture2D, // Final composited output
-	bloom_composite_target:   rl.RenderTexture2D, // dedicated target for bloom compositing
-	bcs_target:               rl.RenderTexture2D, // dedicated target for BCS effect
+	bloom_effect:              Bloom_Effect,           // Global bloom post-processing
+	space_bloom_effect:        Bloom_Effect,           // Space bloom post-processing
+	trail_bloom_effect:        Bloom_Effect,           // Trail bloom post-processing
+	ship_bloom_effect:         Bloom_Effect,           // Ship bloom post-processing
+
+	bcs_effect:                BCS_Effect,             // Background BCS post-processing
+	ship_render_target:        rl.RenderTexture2D,     // ship and projectiles with transparent background
+	trail_render_target:       rl.RenderTexture2D,     // ship trail with transparent background
+	final_render_target:       rl.RenderTexture2D,     // Final composited output
+
+	// render targets pool and post-fx settings
+	render_targets:            [MAX_RENDER_TARGETS]rl.RenderTexture2D, // Render target pool
+	current_rt_index:          int,                    // Current render target index
+	post_fx:                   Post_FX_Settings,       // Post-processing settings
+
+	// postfx instances
+	postfx_instances:          [5]PostFX_Effect_Instance,
 
 	// textures
-	font_atlas_texture:       rl.Texture2D,       // font atlas texture for shaders
+	font_atlas_texture:        rl.Texture2D,           // font atlas texture for shaders
 
 	// debug UI (only in debug builds)
-	debug_ui_ctx:             ^mu.Context,
-	debug_ui_enabled:         bool,
-	debug_atlas_texture:      rl.RenderTexture2D, // font atlas for debug UI
-	debug_system:             Debug_System,       // debug system state (survives hot reloads)
-
-	// performance monitoring
-	render_timing:            Render_Timing,      // render step timing data
+	debug_ui_ctx:              ^mu.Context,            // MicroUI context
+	debug_ui_enabled:          bool,                   // Debug UI toggle
+	debug_atlas_texture:       rl.RenderTexture2D,     // Font atlas for debug UI
+	debug_system:              Debug_System,           // Debug system state
 
 	// game state
-	run:                      bool,               // gotta keep running
+	run:                       bool,                   // gotta keep running
 }
 
 g_state: ^Game_State
@@ -83,85 +93,35 @@ init :: proc() {
 	width := f32(rl.GetScreenWidth())
 	height := f32(rl.GetScreenHeight())
 
-	// initialize debug UI context first
-	debug_ui_ctx: ^mu.Context = nil
-	debug_enabled := false
-	debug_atlas_texture: rl.RenderTexture2D
-	when #config(ODIN_DEBUG, true) {
-		debug_ui_ctx = new(mu.Context)
-		mu.init(debug_ui_ctx)
-
-		// use MicroUI's default atlas text callbacks (proper font rendering)
-		debug_ui_ctx.text_width = mu.default_atlas_text_width
-		debug_ui_ctx.text_height = mu.default_atlas_text_height
-
-		// create font atlas texture from MicroUI's default atlas
-		debug_atlas_texture = rl.LoadRenderTexture(i32(mu.DEFAULT_ATLAS_WIDTH), i32(mu.DEFAULT_ATLAS_HEIGHT))
-
-		image := rl.GenImageColor(i32(mu.DEFAULT_ATLAS_WIDTH), i32(mu.DEFAULT_ATLAS_HEIGHT), rl.Color{0, 0, 0, 0})
-		defer rl.UnloadImage(image)
-
-		for alpha, i in mu.default_atlas_alpha {
-			x := i % mu.DEFAULT_ATLAS_WIDTH
-			y := i / mu.DEFAULT_ATLAS_WIDTH
-			color := rl.Color{255, 255, 255, alpha}
-			rl.ImageDrawPixel(&image, i32(x), i32(y), color)
-		}
-
-		rl.BeginTextureMode(debug_atlas_texture)
-		rl.UpdateTexture(debug_atlas_texture.texture, rl.LoadImageColors(image))
-		rl.EndTextureMode()
-
-		debug_enabled = false // start with debug UI disabled
-	}
-
-	space_vertex_path := "shaders/v100/default.vert"
-	space_shader_0_fragment_path := "shaders/v100/space-shader-0.frag"
-	space_shader_1_fragment_path := "shaders/v100/space-shader-1.frag"
-	space_shader_2_fragment_path := "shaders/v100/space-shader-2.frag"
-	space_shader_3_fragment_path := "shaders/v100/space-shader-3.frag"
-
-	when #config(USE_WEBGL2, false) {
-		space_vertex_path = "shaders/v300es/default.vert"
-		space_shader_0_fragment_path = "shaders/v300es/space-shader-0.frag"
-		space_shader_1_fragment_path = "shaders/v300es/space-shader-1.frag"
-		space_shader_2_fragment_path = "shaders/v300es/space-shader-2.frag"
-		space_shader_3_fragment_path = "shaders/v300es/space-shader-3.frag"
-	}
-
-	space_shaders, shader_manager_initialized := shader_manager_init_from_paths(
-		"Space Shaders",
-		space_vertex_path,
-		{
-			space_shader_0_fragment_path,
-			space_shader_1_fragment_path,
-			space_shader_2_fragment_path,
-			space_shader_3_fragment_path,
-		},
-		i32(width), i32(height),
-		file_reader_func,
-	)
-	// load font atlas texture
-	font_atlas_image := rl.LoadImage("assets/font_atlas.png")
-	font_atlas_texture: rl.Texture2D
-	if font_atlas_image.data != nil {
-		// flip the image vertically to correct for OpenGL coordinate system
-		rl.ImageFlipVertical(&font_atlas_image)
-		font_atlas_texture = rl.LoadTextureFromImage(font_atlas_image)
-		rl.UnloadImage(font_atlas_image)
-	} else {
-		// fallback: create a simple white texture if font atlas is not found
-		font_atlas_texture = rl.LoadTextureFromImage(rl.GenImageColor(1, 1, rl.WHITE))
-		rl.SetTextureFilter(font_atlas_texture, .ANISOTROPIC_16X)
-	}
-
-	// load assets (including window icon)
+	font_atlas_texture := load_font_atlas_texture()
 	load_assets()
+
+	// initialize space system
+	space_system: Space_System
+	space_initialized := space_system_init(&space_system, width, height, file_reader_func)
 
 	bloom_effect: Bloom_Effect
 	bloom_initialized := bloom_effect_init_default(&bloom_effect, i32(width), i32(height), file_reader_func)
 	if !bloom_initialized {
 		fmt.printf("Failed to initialize bloom effect, continuing without bloom")
+	}
+
+	space_bloom_effect: Bloom_Effect
+	space_bloom_initialized := bloom_effect_init_default(&space_bloom_effect, i32(width), i32(height), file_reader_func)
+	if !space_bloom_initialized {
+		fmt.printf("Failed to initialize space bloom effect")
+	}
+
+	trail_bloom_effect: Bloom_Effect
+	trail_bloom_initialized := bloom_effect_init_default(&trail_bloom_effect, i32(width), i32(height), file_reader_func)
+	if !trail_bloom_initialized {
+		fmt.printf("Failed to initialize trail bloom effect")
+	}
+
+	ship_bloom_effect: Bloom_Effect
+	ship_bloom_initialized := bloom_effect_init_default(&ship_bloom_effect, i32(width), i32(height), file_reader_func)
+	if !ship_bloom_initialized {
+		fmt.printf("Failed to initialize ship bloom effect")
 	}
 
 	bcs_effect: BCS_Effect
@@ -170,10 +130,22 @@ init :: proc() {
 		fmt.printf("Failed to initialize BCS effect, continuing without BCS")
 	}
 
-	final_render_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
-	bloom_composite_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
-	bcs_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
-	ship_render_target := LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+	final_render_target := create_render_target(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+	ship_render_target := create_render_target(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+	trail_render_target := create_render_target(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
+
+	ship_trail: Ship_Trail
+	init_ship_trail(&ship_trail, SHIP_SCALE * 0.25) // Use quarter of ship scale as radius
+
+	rt_width := i32(rl.GetScreenWidth())
+	rt_height := i32(rl.GetScreenHeight())
+
+	render_targets: [MAX_RENDER_TARGETS]rl.RenderTexture2D
+	for &target in render_targets {
+		target = create_render_target(rt_width, rt_height, rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
+	}
+
+	post_fx_settings := DEFAULT_POST_FX_SETTINGS
 
 	g_state^ = Game_State {
 		// display and timing
@@ -185,50 +157,76 @@ init :: proc() {
 
 		// game objects/systems
 		ship = init_ship(width, height),
+		ship_trail = ship_trail,
 		camera = init_camera(),
-		space_shaders = shader_manager_initialized ? space_shaders : {},
+		space = space_initialized ? space_system : {},
 
 		// rendering and post-processing
 		bloom_effect = bloom_initialized ? bloom_effect : {},
-		bloom_enabled = true, // Start with bloom enabled
+		space_bloom_effect = space_bloom_initialized ? space_bloom_effect : {},
+		trail_bloom_effect = trail_bloom_initialized ? trail_bloom_effect : {},
+		ship_bloom_effect = ship_bloom_initialized ? ship_bloom_effect : {},
 
 		bcs_effect = bcs_initialized ? bcs_effect : {},
-		bcs_enabled = true, // Start with BCS enabled
 
 		final_render_target = final_render_target,
-		bloom_composite_target = bloom_composite_target,
-		bcs_target = bcs_target,
 		ship_render_target = ship_render_target,
+		trail_render_target = trail_render_target,
 		font_atlas_texture = font_atlas_texture,
 
-		// debug UI
-		debug_ui_ctx = debug_ui_ctx,
-		debug_ui_enabled = debug_enabled,
-		debug_atlas_texture = debug_atlas_texture,
-		debug_system = {}, // Initialize empty debug system
+		render_targets = render_targets,
+		current_rt_index = 0,
+		post_fx = post_fx_settings,
+		postfx_instances = {},
+
+		debug_ui_ctx = nil,
+		debug_ui_enabled = false,
+		debug_atlas_texture = {},
+		debug_system = {},
+
 		run = true,
+	}
+
+	// initialize postfx instances
+	g_state.postfx_instances = {
+		{"BCS", .BCS, nil, &g_state.bcs_effect, nil, &g_state.post_fx.space_bcs, &g_state.post_fx.space_bcs.enabled},
+		{"Space Bloom", .BLOOM_SPACE, &g_state.space_bloom_effect, nil, &g_state.post_fx.space_bloom, nil, &g_state.post_fx.space_bloom.enabled},
+		{"Trail Bloom", .BLOOM_TRAIL, &g_state.trail_bloom_effect, nil, &g_state.post_fx.trail_bloom, nil, &g_state.post_fx.trail_bloom.enabled},
+		{"Ship Bloom", .BLOOM_SHIP, &g_state.ship_bloom_effect, nil, &g_state.post_fx.ship_bloom, nil, &g_state.post_fx.ship_bloom.enabled},
+		{"Final Bloom", .BLOOM_FINAL, &g_state.bloom_effect, nil, &g_state.post_fx.composite_bloom, nil, &g_state.post_fx.composite_bloom.enabled},
 	}
 
 	// initialize camera position to match ship's starting position
 	g_state.camera.position = g_state.ship.world_position
 	g_state.camera.target = g_state.ship.world_position
 
-	// initialize debug system
-	debug_system_init()
+	// initialize ship trail with ship's starting position
+	reset_ship_trail(&g_state.ship_trail, g_state.ship.world_position, g_state.global_time)
 }
 
 shutdown :: proc() {
-	// clean up ship resources
-	cleanup_ship(&g_state.ship)
+	cleanup_ship(&g_state.ship) // clean up ship resources
+	destroy_ship_trail(&g_state.ship_trail) // clean up ship trail
+	space_system_destroy(&g_state.space) // clean up space system
 
-	// clean up shader manager
-	if g_state.space_shaders.shader_count > 0 {
-		shader_manager_destroy(&g_state.space_shaders)
-	}
-
-	// clean up bloom effect
+	// clean up bloom effects
 	if g_state.bloom_effect.initialized {
 		bloom_effect_destroy(&g_state.bloom_effect)
+	}
+
+	// clean up bloom effects
+	if g_state.space_bloom_effect.initialized {
+		bloom_effect_destroy(&g_state.space_bloom_effect)
+	}
+
+	// clean up bloom effects
+	if g_state.trail_bloom_effect.initialized {
+		bloom_effect_destroy(&g_state.trail_bloom_effect)
+	}
+
+	// clean up bloom effects
+	if g_state.ship_bloom_effect.initialized {
+		bloom_effect_destroy(&g_state.ship_bloom_effect)
 	}
 
 	// clean up BCS effect
@@ -241,19 +239,21 @@ shutdown :: proc() {
 		rl.UnloadRenderTexture(g_state.final_render_target)
 	}
 
-	// clean up bloom composite target
-	if g_state.bloom_composite_target.id != 0 {
-		rl.UnloadRenderTexture(g_state.bloom_composite_target)
-	}
-
-	// clean up BCS target
-	if g_state.bcs_target.id != 0 {
-		rl.UnloadRenderTexture(g_state.bcs_target)
-	}
-
 	// clean up ship render target
 	if g_state.ship_render_target.id != 0 {
 		rl.UnloadRenderTexture(g_state.ship_render_target)
+	}
+
+	// clean up trail render target
+	if g_state.trail_render_target.id != 0 {
+		rl.UnloadRenderTexture(g_state.trail_render_target)
+	}
+
+	// clean up render target pool
+	for &target in g_state.render_targets {
+		if target.id != 0 {
+			rl.UnloadRenderTexture(target)
+		}
 	}
 
 	// clean up font atlas texture
@@ -261,16 +261,8 @@ shutdown :: proc() {
 		rl.UnloadTexture(g_state.font_atlas_texture)
 	}
 
-	// clean up debug UI
-	when #config(ODIN_DEBUG, true) {
-		debug_system_destroy()
-		if g_state.debug_atlas_texture.id != 0 {
-			rl.UnloadRenderTexture(g_state.debug_atlas_texture)
-		}
-		if g_state.debug_ui_ctx != nil {
-			free(g_state.debug_ui_ctx)
-		}
-	}
+	// clean up debug GUI
+	destroy_debug_gui()
 
 	free(g_state)
 }
@@ -283,51 +275,25 @@ update :: proc() {
 	g_state.global_time += delta_time
 	g_state.fps = int(rl.GetFPS())
 
-	// handle debug UI input (based on microui example)
-	when #config(ODIN_DEBUG, true) {
-		if g_state.debug_ui_enabled && g_state.debug_ui_ctx != nil {
-			ctx := g_state.debug_ui_ctx
-
-			// mouse input
-			mouse_pos := rl.GetMousePosition()
-			mouse_x, mouse_y := i32(mouse_pos.x), i32(mouse_pos.y)
-			mu.input_mouse_move(ctx, mouse_x, mouse_y)
-
-			mouse_wheel := rl.GetMouseWheelMoveV()
-			mu.input_scroll(ctx, i32(mouse_wheel.x) * 30, i32(mouse_wheel.y) * -30)
-
-			// mouse buttons
-			if rl.IsMouseButtonPressed(.LEFT) do mu.input_mouse_down(ctx, mouse_x, mouse_y, .LEFT)
-			if rl.IsMouseButtonReleased(.LEFT) do mu.input_mouse_up(ctx, mouse_x, mouse_y, .LEFT)
-			if rl.IsMouseButtonPressed(.RIGHT) do mu.input_mouse_down(ctx, mouse_x, mouse_y, .RIGHT)
-			if rl.IsMouseButtonReleased(.RIGHT) do mu.input_mouse_up(ctx, mouse_x, mouse_y, .RIGHT)
-
-			// toggle debug UI with P
-			if rl.IsKeyPressed(.P) {
-				g_state.debug_ui_enabled = !g_state.debug_ui_enabled
-			}
-
-			mu.begin(ctx)
-			// Render new debug system
-			debug_system_render(ctx)
-			mu.end(ctx)
-		} else if rl.IsKeyPressed(.P) && g_state.debug_ui_ctx != nil {
-			g_state.debug_ui_enabled = true
-		}
-	}
-
 	// handle window resizing
 	if g_state.resolution.x != width || g_state.resolution.y != height {
 		g_state.resolution = rl.Vector2{width, height}
 
-		// resize shader manager if initialized
-		if g_state.space_shaders.shader_count > 0 {
-			shader_manager_resize(&g_state.space_shaders, i32(width), i32(height))
-		}
+		// resize space system
+		space_system_resize(&g_state.space, i32(width), i32(height))
 
-		// resize bloom effect if initialized
+		// resize bloom effects if initialized
 		if g_state.bloom_effect.initialized {
 			bloom_effect_resize(&g_state.bloom_effect, i32(width), i32(height))
+		}
+		if g_state.space_bloom_effect.initialized {
+			bloom_effect_resize(&g_state.space_bloom_effect, i32(width), i32(height))
+		}
+		if g_state.trail_bloom_effect.initialized {
+			bloom_effect_resize(&g_state.trail_bloom_effect, i32(width), i32(height))
+		}
+		if g_state.ship_bloom_effect.initialized {
+			bloom_effect_resize(&g_state.ship_bloom_effect, i32(width), i32(height))
 		}
 
 		// resize BCS effect if initialized
@@ -338,30 +304,36 @@ update :: proc() {
 		// resize final render target
 		if g_state.final_render_target.id != 0 {
 			rl.UnloadRenderTexture(g_state.final_render_target)
-			g_state.final_render_target = rl.LoadRenderTexture(i32(width), i32(height))
-		}
-
-		// resize bloom composite target
-		if g_state.bloom_composite_target.id != 0 {
-			rl.UnloadRenderTexture(g_state.bloom_composite_target)
-			g_state.bloom_composite_target = rl.LoadRenderTexture(i32(width), i32(height))
-		}
-
-		// resize BCS target
-		if g_state.bcs_target.id != 0 {
-			rl.UnloadRenderTexture(g_state.bcs_target)
-			g_state.bcs_target = rl.LoadRenderTexture(i32(width), i32(height))
+			g_state.final_render_target = create_render_target(i32(width), i32(height), rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
 		}
 
 		// resize ship render target
 		if g_state.ship_render_target.id != 0 {
 			rl.UnloadRenderTexture(g_state.ship_render_target)
-			g_state.ship_render_target = rl.LoadRenderTexture(i32(width), i32(height))
+			g_state.ship_render_target = create_render_target(i32(width), i32(height), rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
 		}
+
+		// resize trail render target
+		if g_state.trail_render_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.trail_render_target)
+			g_state.trail_render_target = create_render_target(i32(width), i32(height), rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
+		}
+
+		// resize render target pool
+		for &target in g_state.render_targets {
+			if target.id != 0 {
+				rl.UnloadRenderTexture(target)
+				target = create_render_target(i32(width), i32(height), rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
+			}
+		}
+		g_state.current_rt_index = 0
 	}
 
 	// update ship
 	update_ship(&g_state.ship, &g_state.camera, delta_time, width, height)
+
+	// update ship trail - distance-based sampling in WORLD SPACE with thruster offset!
+	add_trail_position(&g_state.ship_trail, g_state.ship.world_position, g_state.ship.rotation, g_state.ship.ship_speed, MAX_SHIP_SPEED, g_state.global_time)
 
 	// update camera
 	update_camera(&g_state.camera, g_state.ship.world_position, g_state.ship.velocity, g_state.ship.rotation, delta_time)
@@ -382,40 +354,13 @@ update :: proc() {
 	}
 
 	// update shader manager
-	if g_state.space_shaders.shader_count > 0 {
-		// set font atlas texture
-		shader_manager_set_uniform(&g_state.space_shaders, "font_atlas", g_state.font_atlas_texture)
+	space_system_update(&g_state.space, g_state)
 
-		// set ship position uniforms before updating
-		shader_manager_set_uniform(&g_state.space_shaders, "ship_world_position", g_state.ship.world_position)
-		shader_manager_set_uniform(&g_state.space_shaders, "ship_screen_position", g_state.ship.position)
-		shader_manager_set_uniform(&g_state.space_shaders, "camera_position", g_state.camera.position)
-
-		// calculate ship direction from rotation
-		ship_radians := g_state.ship.rotation * rl.DEG2RAD
-		ship_direction := rl.Vector2{
-			math.cos(ship_radians),
-			math.sin(ship_radians),
-		}
-
-		// set new thruster uniforms
-		shader_manager_set_uniform(&g_state.space_shaders, "ship_direction", ship_direction)
-		shader_manager_set_uniform(&g_state.space_shaders, "ship_velocity", g_state.ship.velocity)
-		warp_boost := math.clamp(g_state.ship.ship_speed - 997.75, 0.0, 1000.0) * 1.2
-		shader_manager_set_uniform(
-			&g_state.space_shaders,
-			"ship_speed",
-			g_state.ship.ship_speed + warp_boost,
-		)
-
-		shader_manager_update(&g_state.space_shaders, delta_time)
-
-		// handle hot reload for shaders (F7 key)
-		// TODO: this is currently being done automatically by the build system
-		// Not sure if I'll need this in the future for something else
-		if rl.IsKeyPressed(.F7) {
-			shader_manager_reload_shaders(&g_state.space_shaders)
-		}
+	// handle hot reload for shaders (F7 key)
+	// TODO: this is currently being done automatically by the build system
+	// Not sure if I'll need this in the future for something else
+	if rl.IsKeyPressed(.F7) {
+		space_system_reload_shaders(&g_state.space)
 	}
 
 	if rl.IsKeyPressed(.B) {
@@ -429,9 +374,13 @@ update :: proc() {
 			}
 		}
 
-		// toggle bloom
-		g_state.bloom_enabled = !g_state.bloom_enabled
-		fmt.printf("Bloom %s", g_state.bloom_enabled ? "enabled" : "disabled")
+		// toggle all bloom effects
+		new_state := !g_state.post_fx.space_bloom.enabled
+		g_state.post_fx.space_bloom.enabled = new_state
+		g_state.post_fx.trail_bloom.enabled = new_state
+		g_state.post_fx.ship_bloom.enabled = new_state
+		g_state.post_fx.composite_bloom.enabled = new_state
+		fmt.printf("Bloom %s", new_state ? "enabled" : "disabled")
 	}
 
 	g_state.frame += 1
@@ -472,56 +421,56 @@ force_restart :: proc() -> bool {
 
 // Hot reload render targets (called during hot reload)
 hot_reload_render_targets :: proc() {
-	width := f32(rl.GetScreenWidth())
-	height := f32(rl.GetScreenHeight())
+	width := i32(rl.GetScreenWidth())
+	height := i32(rl.GetScreenHeight())
 
-	// Recreate render targets if they don't exist or have wrong size
+	// Recreate render target pool
+	for &target in g_state.render_targets {
+		if target.id == 0 || target.texture.width != width || target.texture.height != height {
+			if target.id != 0 {
+				rl.UnloadRenderTexture(target)
+			}
+			target = create_render_target(width, height, rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
+		}
+	}
+
+	g_state.current_rt_index = 0
+
+	// recreate render targets if they don't exist or have wrong size
 	if g_state.final_render_target.id == 0 ||
-	   g_state.final_render_target.texture.width != i32(width) ||
-	   g_state.final_render_target.texture.height != i32(height) {
+	   g_state.final_render_target.texture.width != width ||
+	   g_state.final_render_target.texture.height != height {
 
-		// Clean up old render target if it exists
+		// clean up old render target if it exists
 		if g_state.final_render_target.id != 0 {
 			rl.UnloadRenderTexture(g_state.final_render_target)
 		}
 
-		g_state.final_render_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
-		fmt.printf("Hot reload: Recreated final_render_target (%dx%d)\n", i32(width), i32(height))
-	}
-
-	if g_state.bloom_composite_target.id == 0 ||
-	   g_state.bloom_composite_target.texture.width != i32(width) ||
-	   g_state.bloom_composite_target.texture.height != i32(height) {
-
-		if g_state.bloom_composite_target.id != 0 {
-			rl.UnloadRenderTexture(g_state.bloom_composite_target)
-		}
-
-		g_state.bloom_composite_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
-		fmt.printf("Hot reload: Recreated bloom_composite_target (%dx%d)\n", i32(width), i32(height))
-	}
-
-	if g_state.bcs_target.id == 0 ||
-	   g_state.bcs_target.texture.width != i32(width) ||
-	   g_state.bcs_target.texture.height != i32(height) {
-
-		if g_state.bcs_target.id != 0 {
-			rl.UnloadRenderTexture(g_state.bcs_target)
-		}
-
-		g_state.bcs_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
-		fmt.printf("Hot reload: Recreated bcs_target (%dx%d)\n", i32(width), i32(height))
+		g_state.final_render_target = create_render_target(width, height, rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
+		fmt.printf("Hot reload: Recreated final_render_target (%dx%d)\n", width, height)
 	}
 
 	if g_state.ship_render_target.id == 0 ||
-	   g_state.ship_render_target.texture.width != i32(width) ||
-	   g_state.ship_render_target.texture.height != i32(height) {
+	   g_state.ship_render_target.texture.width != width ||
+	   g_state.ship_render_target.texture.height != height {
 
 		if g_state.ship_render_target.id != 0 {
 			rl.UnloadRenderTexture(g_state.ship_render_target)
 		}
 
-		g_state.ship_render_target = LoadRT_WithFallback(i32(width), i32(height), .UNCOMPRESSED_R32G32B32A32)
-		fmt.printf("Hot reload: Recreated ship_render_target (%dx%d)\n", i32(width), i32(height))
+		g_state.ship_render_target = create_render_target(width, height, rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
+		fmt.printf("Hot reload: Recreated ship_render_target (%dx%d)\n", width, height)
+	}
+
+	if g_state.trail_render_target.id == 0 ||
+	   g_state.trail_render_target.texture.width != width ||
+	   g_state.trail_render_target.texture.height != height {
+
+		if g_state.trail_render_target.id != 0 {
+			rl.UnloadRenderTexture(g_state.trail_render_target)
+		}
+
+		g_state.trail_render_target = create_render_target(width, height, rl.PixelFormat.UNCOMPRESSED_R32G32B32A32)
+		fmt.printf("Hot reload: Recreated trail_render_target (%dx%d)\n", width, height)
 	}
 }

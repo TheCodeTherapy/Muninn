@@ -57,7 +57,7 @@ update_camera :: proc(camera: ^Camera_State, ship_world_pos: rl.Vector2, ship_ve
 		f32(rl.GetFPS()),
 	)
 
-	// calculate lookahead position (for now for debug vis)
+	// calculate lookahead position
 	velocity_magnitude := vector_magnitude(ship_velocity)
 	clamped_velocity := clamp(velocity_magnitude, 0, camera.max_velocity)
 	velocity_factor := camera.max_velocity > 0 ? clamped_velocity / camera.max_velocity : 0.0
@@ -113,34 +113,6 @@ game_camera :: proc() -> rl.Camera2D {
 		zoom = (h / PIXEL_WINDOW_HEIGHT) * g_state.camera.zoom,
 		target = g_state.camera.position, // smoothly interpolated position
 		offset = { w / 2, h / 2 },
-	}
-}
-
-// debug visualization for camera look-ahead system
-debug_draw_camera_lookahead :: proc(ship_screen_pos: rl.Vector2, ship_velocity: rl.Vector2, ship_rotation: f32) {
-	when #config(ODIN_DEBUG, false) {
-		if !g_state.debug_ui_enabled do return
-
-		camera := &g_state.camera
-
-		// convert world lookahead position to screen-space	position
-		lookahead_screen_pos := rl.Vector2{
-			camera.world_lookahead_position.x - camera.position.x + f32(rl.GetScreenWidth()) / 2,
-			camera.world_lookahead_position.y - camera.position.y + f32(rl.GetScreenHeight()) / 2,
-		}
-
-		// draw red line from ship center to look-ahead target
-		rl.DrawLineV(ship_screen_pos, lookahead_screen_pos, rl.RED)
-		rl.DrawCircleV(lookahead_screen_pos, 3.0, rl.RED) // small circle at the end of the vector
-
-		// calculate velocity info for display
-		velocity_magnitude := vector_magnitude(ship_velocity)
-		clamped_velocity := clamp(velocity_magnitude, 0, camera.max_velocity)
-		velocity_factor := camera.max_velocity > 0 ? clamped_velocity / camera.max_velocity : 0.0
-
-		// draw velocity factor as text near ship
-		velocity_text := fmt.ctprintf("Vel: %.1f (%.2f%%)", velocity_magnitude, velocity_factor * 100)
-		rl.DrawText(velocity_text, i32(ship_screen_pos.x + 40), i32(ship_screen_pos.y - 20), 20, {255, 255, 255, 200})
 	}
 }
 

@@ -4,9 +4,6 @@ import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
 
-// file reader function type
-File_Reader :: proc(filename: string, allocator := context.allocator, loc := #caller_location) -> (data: []byte, success: bool)
-
 // uniform value types that can be passed to the shaders
 Uniform_Value :: union {
   f32,
@@ -17,55 +14,57 @@ Uniform_Value :: union {
   rl.Texture2D,
 }
 
+// uniform definition for external specification
+Uniform_Definition :: struct {
+  name: string,
+  value: Uniform_Value,
+}
+
 // pair of render targets for ping-pong rendering
 Render_Target_Pair :: struct {
   read_buffer:  rl.RenderTexture2D,
   write_buffer: rl.RenderTexture2D,
 }
 
-// shader Manager for multi-pass rendering with ping-pong buffers
+// abstract shader Manager for multi-pass rendering with ping-pong buffers
 Shader_Manager :: struct {
-  name: string, //                                  unique identifier for this shader manager instance
-  render_targets: []Render_Target_Pair, //          render targets for each shader (double-buffered)
-  shaders: []rl.Shader, //                          fragment shaders
+  name: string,                              // unique identifier for this shader manager instance
+  render_targets: []Render_Target_Pair,      // render targets for each shader (double-buffered)
+  shaders: []rl.Shader,                      // fragment shaders
 
-  uniform_locations: []map[string]i32, //           uniform locations for each shader
-  time: f32, //                                     common uniform values
-  delta_time: f32, //                               time since last frame
-  frame: i32, //                                    common uniform values
-  fps: f32, //                                      current FPS (updated every frame)
-  resolution: rl.Vector2, //                        common uniform values
-  mouse_pos: rl.Vector2, //                         mouse position uniform
-  mouse_target: rl.Vector2, //                      mouse target for interpolation
-  mouse_lerp: rl.Vector2, //                        interpolated mouse position uniform
-  mouse_lerp_factor: f32, //                        mouse interpolation factor
-  additional_uniforms: map[string]Uniform_Value, // common uniform values
+  uniform_locations: []map[string]i32,       // uniform locations for each shader
+  uniforms: map[string]Uniform_Value,        // all uniform values (externally managed)
 
+  screen_width, screen_height: i32,          // screen dimensions
 
+  vertex_shader_path: string,                // vertex shader path (reused for all frag shaders)
+  fragment_shader_paths: []string,           // fragment shader paths
+  shader_count: int,                         // number of fragment shaders
 
-  screen_width, screen_height: i32, //              screen dimensions
+  prev_render_targets: []Render_Target_Pair, // previous frame render target state
 
-  vertex_shader_path: string, //                    vertex shader path (reused for all frag shaders)
-  fragment_shader_paths: []string, //               fragment shader paths
-  shader_count: int, //                             number of fragment shaders
+  frame: i32,                                // current frame number
+  prev_frame: i32,                           // previous frame number
+  display_frame_a: i32,                      // stable frame A for display
+  display_frame_b: i32,                      // stable frame B for display
 
-  // previous frame state for debug comparison
-  prev_frame: i32, //                               previous frame number
-  prev_render_targets: []Render_Target_Pair, //     previous frame render target state
+  display_targets_a: []Render_Target_Pair,   // stable targets A for display (updates every 2 frames)
+  display_targets_b: []Render_Target_Pair,   // stable targets B for display(updates every 2 frames)
+  display_pair_ready: bool,                  // whether we have a stable pair to display
 
-  // stable frame pair display (updates every 2 frames)
-  display_frame_a: i32, //                          stable frame A for display
-  display_frame_b: i32, //                          stable frame B for display
-  display_targets_a: []Render_Target_Pair, //       stable targets A for display
-  display_targets_b: []Render_Target_Pair, //       stable targets B for display
-  display_pair_ready: bool, //                      whether we have a stable pair to display
-
-  // file reader function for shader preprocessing
-  file_reader: File_Reader, //                      function to read files cross-platform
+  file_reader: File_Reader,                  // global cross-platform & cross-env file reader function
 }
 
-// initialize the shader manager with fragment shader paths
-shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_path: string, fragment_shader_paths: []string, width, height: i32, file_reader: File_Reader) -> bool {
+// initialize the abstract shader manager
+shader_manager_init :: proc(
+    sm: ^Shader_Manager,
+    name: string,
+    vertex_shader_path: string,
+    fragment_shader_paths: []string,
+    uniform_definitions: []Uniform_Definition,
+    width, height: i32,
+    file_reader: File_Reader,
+) -> bool {
   sm.name = name
   sm.vertex_shader_path = vertex_shader_path
   sm.fragment_shader_paths = make([]string, len(fragment_shader_paths))
@@ -75,41 +74,37 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
   sm.shader_count = len(fragment_shader_paths)
   sm.screen_width = width
   sm.screen_height = height
-  sm.resolution = rl.Vector2{f32(width), f32(height)}
-  sm.time = 0.0
-  sm.delta_time = 0.0
-  sm.frame = 0
-  sm.fps = 0.0
-  sm.mouse_pos = rl.Vector2{0, 0}
-  sm.mouse_target = rl.Vector2{0, 0}
-  sm.mouse_lerp = rl.Vector2{0, 0}
-  sm.mouse_lerp_factor = 0.05 // framerate-independent lerp factor (0.03 = smooth, 0.2 = snappy)
 
-
-  // initialize additional uniforms map
-  sm.additional_uniforms = make(map[string]Uniform_Value)
+  // initialize uniforms map with provided definitions
+  sm.uniforms = make(map[string]Uniform_Value)
+  for uniform_def in uniform_definitions {
+    sm.uniforms[uniform_def.name] = uniform_def.value
+  }
 
   // create render targets
   sm.render_targets = make([]Render_Target_Pair, sm.shader_count)
 
-  // create previous frame render targets for debug comparison
+  // create previous frame render targets
   sm.prev_render_targets = make([]Render_Target_Pair, sm.shader_count)
-  sm.prev_frame = -1
 
   // create stable display frame pairs
   sm.display_targets_a = make([]Render_Target_Pair, sm.shader_count)
   sm.display_targets_b = make([]Render_Target_Pair, sm.shader_count)
+  sm.display_pair_ready = false
+
+  // initialize frame tracking
+  sm.frame = 0
+  sm.prev_frame = -1
   sm.display_frame_a = -1
   sm.display_frame_b = -1
-  sm.display_pair_ready = false
 
   for i in 0..<sm.shader_count {
     // use 32-bit float render textures for better precision
-    sm.render_targets[i].read_buffer = LoadRT_WithFallback(width, height, .UNCOMPRESSED_R32G32B32A32)
-    sm.render_targets[i].write_buffer = LoadRT_WithFallback(width, height, .UNCOMPRESSED_R32G32B32A32)
+    sm.render_targets[i].read_buffer = create_render_target(width, height, .UNCOMPRESSED_R32G32B32A32)
+    sm.render_targets[i].write_buffer = create_render_target(width, height, .UNCOMPRESSED_R32G32B32A32)
 
     if sm.render_targets[i].read_buffer.id == 0 || sm.render_targets[i].write_buffer.id == 0 {
-      fmt.printf("Failed to create render targets for shader %d", i)
+      Log(.ERROR, "RENDER TARGETS", "Failed to create render targets for shader %d", i)
       shader_manager_destroy(sm)
       return false
     }
@@ -132,7 +127,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     defer delete(vertex_cstr)
 
     if !rl.FileExists(vertex_cstr) {
-      fmt.printf("Vertex shader file not found: %s", vertex_shader_path)
+      Log(.ERROR, "SHADER MANAGER", "Vertex shader file not found: %s", vertex_shader_path)
       shader_manager_destroy(sm)
       return false
     }
@@ -141,7 +136,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     defer delete(fragment_cstr)
 
     if !rl.FileExists(fragment_cstr) {
-      fmt.printf("Fragment shader file not found: %s", fragment_shader_paths[i])
+      Log(.ERROR, "SHADER MANAGER", "Fragment shader file not found: %s", fragment_shader_paths[i])
       shader_manager_destroy(sm)
       return false
     }
@@ -149,7 +144,7 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     sm.shaders[i] = load_shader_with_preprocessing(sm, vertex_shader_path, fragment_shader_paths[i])
 
     if sm.shaders[i].id == 0 {
-      fmt.printf("Failed to load shader %d: vertex=%s, fragment=%s", i, vertex_shader_path, fragment_shader_paths[i])
+      Log(.ERROR, "SHADER MANAGER", "Failed to load shader %d: vertex=%s, fragment=%s", i, vertex_shader_path, fragment_shader_paths[i])
       shader_manager_destroy(sm)
       return false
     }
@@ -157,45 +152,25 @@ shader_manager_init :: proc(sm: ^Shader_Manager, name: string, vertex_shader_pat
     // initialize uniform location map for this shader
     sm.uniform_locations[i] = make(map[string]i32)
 
-    // get locations for common uniforms
-    sm.uniform_locations[i]["time"] = rl.GetShaderLocation(sm.shaders[i], "time")
-    sm.uniform_locations[i]["delta_time"] = rl.GetShaderLocation(sm.shaders[i], "delta_time")
-    sm.uniform_locations[i]["frame"] = rl.GetShaderLocation(sm.shaders[i], "frame")
-    sm.uniform_locations[i]["fps"] = rl.GetShaderLocation(sm.shaders[i], "fps")
-    sm.uniform_locations[i]["resolution"] = rl.GetShaderLocation(sm.shaders[i], "resolution")
-    sm.uniform_locations[i]["mouse"] = rl.GetShaderLocation(sm.shaders[i], "mouse")
-    sm.uniform_locations[i]["mouselerp"] = rl.GetShaderLocation(sm.shaders[i], "mouselerp")
-    sm.uniform_locations[i]["ship_world_position"] = rl.GetShaderLocation(sm.shaders[i], "ship_world_position")
-    sm.uniform_locations[i]["ship_screen_position"] = rl.GetShaderLocation(sm.shaders[i], "ship_screen_position")
-    sm.uniform_locations[i]["camera_position"] = rl.GetShaderLocation(sm.shaders[i], "camera_position")
-    sm.uniform_locations[i]["ship_direction"] = rl.GetShaderLocation(sm.shaders[i], "ship_direction")
-    sm.uniform_locations[i]["ship_velocity"] = rl.GetShaderLocation(sm.shaders[i], "ship_velocity")
-    sm.uniform_locations[i]["ship_speed"] = rl.GetShaderLocation(sm.shaders[i], "ship_speed")
-
-    fmt.printf("Shader %d common uniforms: time=%d, frame=%d, resolution=%d, mouse=%d, mouselerp=%d",
-      i,
-      sm.uniform_locations[i]["time"],
-      sm.uniform_locations[i]["delta_time"],
-      sm.uniform_locations[i]["frame"],
-      sm.uniform_locations[i]["fps"],
-      sm.uniform_locations[i]["resolution"],
-      sm.uniform_locations[i]["mouse"],
-      sm.uniform_locations[i]["mouselerp"],
-    )
+    // get locations for all defined uniforms
+    for uniform_name, _ in sm.uniforms {
+      name_cstr := strings.clone_to_cstring(uniform_name)
+      defer delete(name_cstr)
+      sm.uniform_locations[i][uniform_name] = rl.GetShaderLocation(sm.shaders[i], name_cstr)
+    }
 
     // get locations for all prgm*Texture uniforms (every shader gets all texture uniforms)
     for j in 0..<sm.shader_count {
-      // create a persistent string for the uniform name
       uniform_name := fmt.aprintf("prgm%dTexture", j)
       cstr_name := strings.clone_to_cstring(uniform_name)
-      defer delete(cstr_name) // Clean up C string
+      defer delete(cstr_name)
       location := rl.GetShaderLocation(sm.shaders[i], cstr_name)
       sm.uniform_locations[i][uniform_name] = location
-      fmt.printf("Shader %d: %s location = %d (stored as key: '%s')", i, uniform_name, location, uniform_name)
+      Log(.SUCCESS, "SHADER MANAGER", "Shader %d: %s location = %d (stored as key: '%s')", i, uniform_name, location, uniform_name)
     }
   }
 
-  fmt.printf("Shader manager '%s' initialized with %d shaders", sm.name, sm.shader_count)
+  Log(.SUCCESS, "SHADER MANAGER", "'%s' initialized with %d shaders", sm.name, sm.shader_count)
   return true
 }
 
@@ -204,6 +179,7 @@ shader_manager_init_from_paths :: proc(
     name: string,
     vertex_path: string,
     fragment_paths: []string,
+    uniform_definitions: []Uniform_Definition,
     width, height: i32,
     file_reader: File_Reader,
 ) -> (Shader_Manager, bool) {
@@ -226,12 +202,12 @@ shader_manager_init_from_paths :: proc(
   }
 
   if !all_shaders_exist {
-    fmt.printf("Shader manager '%s': some shader files not found", name)
+    Log(.ERROR, "SHADER MANAGER", "ERROR: '%s' -> some shader files not found", name)
     return shader_manager, false
   }
 
   // Initialize the shader manager
-  success := shader_manager_init(&shader_manager, name, vertex_path, fragment_paths, width, height, file_reader)
+  success := shader_manager_init(&shader_manager, name, vertex_path, fragment_paths, uniform_definitions, width, height, file_reader)
 
   if !success {
     shader_manager_destroy(&shader_manager)
@@ -243,12 +219,14 @@ shader_manager_init_from_paths :: proc(
 
 // hot reload shaders
 shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
-  fmt.printf("=== HOT RELOADING SHADERS (%s) ===", sm.name)
+  if debug {
+    Log(.SUCCESS, "SHADER MANAGER", "HOT RELOAD START (%s)", sm.name)
+  }
 
   // unload existing shaders
   for i in 0..<sm.shader_count {
     if sm.shaders[i].id != 0 {
-      fmt.printf("Unloading old shader %d (ID: %d)", i, sm.shaders[i].id)
+      Log(.SUCCESS, "SHADER MANAGER", "Unloading old shader %d (ID: %d)", i, sm.shaders[i].id)
       rl.UnloadShader(sm.shaders[i])
     }
     // clear old uniform locations and clean up string keys
@@ -264,9 +242,7 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
 
   // reload all shaders
   for i in 0..<sm.shader_count {
-    fmt.printf("Reloading shader %d: vertex=%s, fragment=%s",
-      i, sm.vertex_shader_path, sm.fragment_shader_paths[i],
-    )
+    Log(.SUCCESS, "SHADER MANAGER", "Reloading shader %d: vertex=%s, fragment=%s", i, sm.vertex_shader_path, sm.fragment_shader_paths[i])
 
     vertex_cstr := strings.clone_to_cstring(sm.vertex_shader_path)
     defer delete(vertex_cstr)
@@ -276,41 +252,18 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
     sm.shaders[i] = load_shader_with_preprocessing(sm, sm.vertex_shader_path, sm.fragment_shader_paths[i])
 
     if sm.shaders[i].id == 0 {
-      fmt.printf(
-        "RELOAD FAILED: Shader %d failed to compile: vertex=%s, fragment=%s",
-        i, sm.vertex_shader_path, sm.fragment_shader_paths[i],
-      )
+      Log(.ERROR, "SHADER MANAGER", "RELOAD FAILED: Shader %d failed to compile: vertex=%s, fragment=%s", i, sm.vertex_shader_path, sm.fragment_shader_paths[i])
       return false
     }
 
-    fmt.printf("Shader %d reloaded successfully (new ID: %d)", i, sm.shaders[i].id)
+    Log(.SUCCESS, "SHADER MANAGER", "Shader %d reloaded successfully (new ID: %d)", i, sm.shaders[i].id)
 
-    // get locations for common uniforms
-    sm.uniform_locations[i]["time"] = rl.GetShaderLocation(sm.shaders[i], "time")
-    sm.uniform_locations[i]["delta_time"] = rl.GetShaderLocation(sm.shaders[i], "delta_time")
-    sm.uniform_locations[i]["frame"] = rl.GetShaderLocation(sm.shaders[i], "frame")
-    sm.uniform_locations[i]["fps"] = rl.GetShaderLocation(sm.shaders[i], "fps")
-    sm.uniform_locations[i]["resolution"] = rl.GetShaderLocation(sm.shaders[i], "resolution")
-    sm.uniform_locations[i]["mouse"] = rl.GetShaderLocation(sm.shaders[i], "mouse")
-    sm.uniform_locations[i]["mouselerp"] = rl.GetShaderLocation(sm.shaders[i], "mouselerp")
-    sm.uniform_locations[i]["ship_world_position"] = rl.GetShaderLocation(sm.shaders[i], "ship_world_position")
-    sm.uniform_locations[i]["ship_screen_position"] = rl.GetShaderLocation(sm.shaders[i], "ship_screen_position")
-    sm.uniform_locations[i]["camera_position"] = rl.GetShaderLocation(sm.shaders[i], "camera_position")
-    sm.uniform_locations[i]["ship_direction"] = rl.GetShaderLocation(sm.shaders[i], "ship_direction")
-    sm.uniform_locations[i]["ship_velocity"] = rl.GetShaderLocation(sm.shaders[i], "ship_velocity")
-    sm.uniform_locations[i]["ship_speed"] = rl.GetShaderLocation(sm.shaders[i], "ship_speed")
-
-    fmt.printf(
-      "RELOADED Shader %d common uniforms: time=%d, frame=%d, resolution=%d, mouse=%d, mouselerp=%d",
-      i,
-      sm.uniform_locations[i]["time"],
-      sm.uniform_locations[i]["delta_time"],
-      sm.uniform_locations[i]["frame"],
-      sm.uniform_locations[i]["fps"],
-      sm.uniform_locations[i]["resolution"],
-      sm.uniform_locations[i]["mouse"],
-      sm.uniform_locations[i]["mouselerp"],
-    )
+    // get locations for all defined uniforms
+    for uniform_name, _ in sm.uniforms {
+      name_cstr := strings.clone_to_cstring(uniform_name)
+      defer delete(name_cstr)
+      sm.uniform_locations[i][uniform_name] = rl.GetShaderLocation(sm.shaders[i], name_cstr)
+    }
 
     // get locations for all prgm*Texture uniforms
     for j in 0..<sm.shader_count {
@@ -321,15 +274,15 @@ shader_manager_reload_shaders :: proc(sm: ^Shader_Manager) -> bool {
 
       location := rl.GetShaderLocation(sm.shaders[i], cstr_name)
       sm.uniform_locations[i][uniform_name] = location
-      fmt.printf("RELOADED Shader %d: %s location = %d", i, uniform_name, location)
+      Log(.SUCCESS, "SHADER MANAGER", "RELOADED Shader %d: %s location = %d", i, uniform_name, location)
     }
   }
 
-  fmt.printf("=== SHADER HOT RELOAD COMPLETE (%s) ===", sm.name)
+  Log(.SUCCESS, "SHADER MANAGER", "HOT RELOAD  END  (%s)", sm.name)
   return true
 }
 
-// destroy the shader manager and clean up resources
+// destroy the abstract shader manager and clean up resources
 shader_manager_destroy :: proc(sm: ^Shader_Manager) {
   // unload shaders
   for shader in sm.shaders {
@@ -349,10 +302,10 @@ shader_manager_destroy :: proc(sm: ^Shader_Manager) {
     }
   }
 
-  delete(sm.render_targets) // cleanup render targets
-  delete(sm.prev_render_targets) // clean up previous frame render targets
-  delete(sm.display_targets_a) // clean up stable display frame pairs
-  delete(sm.display_targets_b) // clean up stable display frame pairs
+  delete(sm.render_targets)
+  delete(sm.prev_render_targets)
+  delete(sm.display_targets_a)
+  delete(sm.display_targets_b)
 
   // clean up uniform locations
   for locations in sm.uniform_locations {
@@ -367,81 +320,34 @@ shader_manager_destroy :: proc(sm: ^Shader_Manager) {
   }
   delete(sm.uniform_locations)
 
-  // clean up additional uniforms
-  delete(sm.additional_uniforms)
+  // clean up uniforms
+  delete(sm.uniforms)
 
   // clean up shader paths
   delete(sm.fragment_shader_paths)
 
-  fmt.printf("Shader manager '%s' destroyed", sm.name)
-}
-
-
-// update common uniforms (time, frame, resolution, mouse)
-shader_manager_update :: proc(sm: ^Shader_Manager, delta_time: f32) {
-  // capture previous frame state before updating
-  if sm.frame >= 0 {
-    sm.prev_frame = sm.frame
-    // copy current render target state to previous frame state
-    for i in 0..<sm.shader_count {
-      sm.prev_render_targets[i] = sm.render_targets[i]
-    }
-  }
-
-  sm.fps = f32(rl.GetFPS())
-  sm.delta_time = delta_time
-  sm.time += delta_time
-  sm.frame += 1
-
-  // update mouse input for shaders
-  mouse_pos := rl.GetMousePosition()
-  width := f32(sm.screen_width)
-  height := f32(sm.screen_height)
-
-  // normalize mouse coordinates to [-1,1]
-  normalized_mouse := rl.Vector2{
-    (mouse_pos.x / width) * 2.0 - 1.0,  // Convert [0,width] to [-1,1]
-    1.0 - (mouse_pos.y / height) * 2.0, // Convert [0,height] to [1,-1], then flip Y
-  }
-
-  sm.mouse_pos = normalized_mouse
-  sm.mouse_target = normalized_mouse
-
-  // smoothly interpolate towards the stable target
-  sm.mouse_lerp.x += ease(sm.mouse_target.x, sm.mouse_lerp.x, sm.mouse_lerp_factor, delta_time, sm.fps)
-  sm.mouse_lerp.y += ease(sm.mouse_target.y, sm.mouse_lerp.y, sm.mouse_lerp_factor, delta_time, sm.fps)
-
-
-
-  // handle window resizing
-  current_width := i32(rl.GetScreenWidth())
-  current_height := i32(rl.GetScreenHeight())
-
-  if current_width != sm.screen_width || current_height != sm.screen_height {
-    shader_manager_resize(sm, current_width, current_height)
-  }
+  Log(.SUCCESS, "SHADER MANAGER", "'%s' destroyed", sm.name)
 }
 
 // resize render targets when screen size changes
 shader_manager_resize :: proc(sm: ^Shader_Manager, new_width, new_height: i32) {
   sm.screen_width = new_width
   sm.screen_height = new_height
-  sm.resolution = rl.Vector2{f32(new_width), f32(new_height)}
 
   // resize all render targets
   for &target in sm.render_targets {
     rl.UnloadRenderTexture(target.read_buffer)
     rl.UnloadRenderTexture(target.write_buffer)
-    target.read_buffer = LoadRT_WithFallback(new_width, new_height, .UNCOMPRESSED_R32G32B32A32)
-    target.write_buffer = LoadRT_WithFallback(new_width, new_height, .UNCOMPRESSED_R32G32B32A32)
+    target.read_buffer = create_render_target(new_width, new_height, .UNCOMPRESSED_R32G32B32A32)
+    target.write_buffer = create_render_target(new_width, new_height, .UNCOMPRESSED_R32G32B32A32)
   }
 
-  fmt.printf("Shader manager '%s' resized to %dx%d", sm.name, new_width, new_height)
+  Log(.SUCCESS, "SHADER MANAGER", "'%s' resized to (%dx%d)", sm.name, new_width, new_height)
 }
 
-// set an additional uniform value
+// set a uniform value
 shader_manager_set_uniform :: proc(sm: ^Shader_Manager, name: string, value: Uniform_Value) {
-  sm.additional_uniforms[name] = value
+  sm.uniforms[name] = value
 
   // update uniform locations for all shaders if not already cached
   for i in 0..<sm.shader_count {
@@ -453,10 +359,17 @@ shader_manager_set_uniform :: proc(sm: ^Shader_Manager, name: string, value: Uni
   }
 }
 
-// get an additional uniform value
+// get a uniform value
 shader_manager_get_uniform :: proc(sm: ^Shader_Manager, name: string) -> (Uniform_Value, bool) {
-  value, ok := sm.additional_uniforms[name]
+  value, ok := sm.uniforms[name]
   return value, ok
+}
+
+// update multiple uniforms at once
+shader_manager_update_uniforms :: proc(sm: ^Shader_Manager, uniform_definitions: []Uniform_Definition) {
+  for uniform_def in uniform_definitions {
+    shader_manager_set_uniform(sm, uniform_def.name, uniform_def.value)
+  }
 }
 
 // apply a uniform value to a shader
@@ -486,9 +399,18 @@ shader_manager_apply_uniform :: proc(shader: rl.Shader, location: i32, value: Un
   }
 }
 
-// main rendering function - performs simple linear multi-pass rendering
+// main rendering function - performs simple linear multi-pass rendering and returns output texture
 shader_manager_render :: proc(sm: ^Shader_Manager) -> rl.Texture2D {
   if sm.shader_count == 0 do return rl.Texture2D{}
+
+  // update frame tracking
+  sm.prev_frame = sm.frame
+  sm.frame += 1
+
+  // capture previous frame state before rendering
+  for i in 0..<sm.shader_count {
+    sm.prev_render_targets[i] = sm.render_targets[i]
+  }
 
   // render all shaders in order 0 to N-1 (simple linear pipeline)
   for i in 0..<sm.shader_count {
@@ -541,17 +463,8 @@ shader_manager_render_pass :: proc(sm: ^Shader_Manager, shader_index: int, targe
 
   rl.BeginShaderMode(shader)
 
-  // set common uniforms
-  shader_manager_apply_uniform(shader, locations["time"], sm.time)
-  shader_manager_apply_uniform(shader, locations["delta_time"], sm.delta_time)
-  shader_manager_apply_uniform(shader, locations["frame"], sm.frame)
-  shader_manager_apply_uniform(shader, locations["fps"], sm.fps)
-  shader_manager_apply_uniform(shader, locations["resolution"], sm.resolution)
-  shader_manager_apply_uniform(shader, locations["mouse"], sm.mouse_pos)
-  shader_manager_apply_uniform(shader, locations["mouselerp"], sm.mouse_lerp)
-
-  // set additional uniforms
-  for name, value in sm.additional_uniforms {
+  // set all uniforms
+  for name, value in sm.uniforms {
     if location, ok := locations[name]; ok {
       shader_manager_apply_uniform(shader, location, value)
     }
@@ -572,7 +485,7 @@ shader_manager_render_pass :: proc(sm: ^Shader_Manager, shader_index: int, targe
   dummy_texture := sm.render_targets[dummy_shader_index].read_buffer.texture
 
   // draw the texture to fill the screen - this generates proper fragTexCoord (0,0) to (1,1)
-  // use negative height to match the flipping done in draw_to_screen
+  // use negative height to match the flipping done in the original draw_to_screen
   rl.DrawTextureRec(
     dummy_texture,
     rl.Rectangle{0, 0, f32(dummy_texture.width), -f32(dummy_texture.height)}, // negative height for consistency
@@ -612,7 +525,7 @@ resolve_shader_path :: proc(relative_path: string, allocator := context.allocato
 process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path: string, depth: int = 0) -> string {
   // nesting safe-guard
   if depth > 10 {
-    fmt.printf("Maximum include depth exceeded (10) in %s", source_path)
+    Log(.ERROR, "SHADER MANAGER", "Maximum include depth exceeded (10) in %s", source_path)
     return source
   }
 
@@ -631,13 +544,12 @@ process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path
     trimmed_line := strings.trim_space(line)
 
     // look for #include directive
-    // I think I'll support a commented out // #include in case I'm editing shaders
-    // with some fucking annoying GLSL validator that keeps screaming at me
+    // support commented out // #include for editing with GLSL validators
     if strings.has_prefix(trimmed_line, "#include ") || strings.has_prefix(trimmed_line, "// #include ") {
       // Extract filename from include directive
       include_filename := extract_include_filename(trimmed_line)
       if include_filename == "" {
-        fmt.printf("Invalid #include directive at line %d in %s: %s", line_idx + 1, source_path, line)
+        Log(.ERROR, "SHADER MANAGER", "Invalid #include directive at line %d in %s: %s", line_idx + 1, source_path, line)
         strings.write_string(&builder, line)
         strings.write_byte(&builder, '\n')
         continue
@@ -648,7 +560,7 @@ process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path
 
       include_data, include_ok := sm.file_reader(include_path)
       if !include_ok {
-        fmt.printf("Failed to read include file: %s (referenced from %s)", include_path, source_path)
+        Log(.ERROR, "SHADER MANAGER", "Failed to read include file: %s (referenced from %s)", include_path, source_path)
         strings.write_string(&builder, line)
         strings.write_byte(&builder, '\n')
         continue
@@ -663,7 +575,7 @@ process_shader_includes :: proc(sm: ^Shader_Manager, source: string, source_path
       strings.write_string(&builder, processed_include)
       strings.write_byte(&builder, '\n')
 
-      fmt.printf("Included %s into %s (depth %d)", include_path, source_path, depth)
+      Log(.SUCCESS, "SHADER MANAGER", "Included %s into %s (depth %d)", include_path, source_path, depth)
     } else {
       strings.write_string(&builder, line)
       strings.write_byte(&builder, '\n')
@@ -678,7 +590,6 @@ extract_include_filename :: proc(line: string) -> string {
   trimmed := strings.trim_space(line)
 
   // remove comment prefix if present
-  // TODO: improve this
   if strings.has_prefix(trimmed, "//") {
     trimmed = strings.trim_space(trimmed[2:])
   }
@@ -707,7 +618,7 @@ load_shader_with_preprocessing :: proc(sm: ^Shader_Manager, vertex_path: string,
   // Load vertex shader content
   vertex_data, vertex_ok := sm.file_reader(vertex_path)
   if !vertex_ok {
-    fmt.printf("Failed to read vertex shader: %s", vertex_path)
+    Log(.ERROR, "SHADER MANAGER", "Failed to read vertex shader: %s", vertex_path)
     return rl.Shader{}
   }
   defer delete(vertex_data)
@@ -715,7 +626,7 @@ load_shader_with_preprocessing :: proc(sm: ^Shader_Manager, vertex_path: string,
   // Load fragment shader content
   fragment_data, fragment_ok := sm.file_reader(fragment_path)
   if !fragment_ok {
-    fmt.printf("Failed to read fragment shader: %s", fragment_path)
+    Log(.ERROR, "SHADER MANAGER", "Failed to read fragment shader: %s", fragment_path)
     return rl.Shader{}
   }
   defer delete(fragment_data)
@@ -734,25 +645,4 @@ load_shader_with_preprocessing :: proc(sm: ^Shader_Manager, vertex_path: string,
   defer delete(fragment_cstr)
 
   return rl.LoadShaderFromMemory(vertex_cstr, fragment_cstr)
-}
-
-// convenience function to render the final output to screen
-shader_manager_draw_to_screen :: proc(sm: ^Shader_Manager, position: rl.Vector2 = {0, 0}, tint: rl.Color = rl.WHITE) {
-  if sm.shader_count == 0 do return
-
-  texture := shader_manager_get_output_texture(sm)
-
-  if texture.id != 0 {
-    // draw texture flipped vertically (Raylib render texture convention)
-    rl.DrawTextureRec(
-      texture,
-      rl.Rectangle{
-        0, 0,
-        f32(texture.width),
-        -f32(texture.height), // negative height to flip
-      },
-      position,
-      tint,
-    )
-  }
 }

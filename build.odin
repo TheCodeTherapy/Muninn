@@ -164,6 +164,52 @@ run_command_with_output :: proc(program: string, args: []string) -> struct{succe
   return {state.exit_code == 0, output}
 }
 
+// check if debug binary exists
+check_debug_binary_exists :: proc() -> bool {
+  when ODIN_OS == .Windows {
+    return os.exists("build/debug/game_debug.exe")
+  } else {
+    return os.exists("build/debug/game_debug")
+  }
+}
+
+// check if release binary exists
+check_release_binary_exists :: proc() -> bool {
+  when ODIN_OS == .Windows {
+    return os.exists("build/release/game_release.exe")
+  } else {
+    return os.exists("build/release/game_release")
+  }
+}
+
+// ensure debug and release builds exist (prerequisite for hot-reload and web builds)
+ensure_prerequisites :: proc() -> bool {
+  debug_exists := check_debug_binary_exists()
+  release_exists := check_release_binary_exists()
+
+  if !debug_exists {
+    print_info("Debug binary not found, building debug prerequisite...")
+    if !build_debug() {
+      print_error("Failed to build debug prerequisite")
+      return false
+    }
+  } else {
+    print_info("Debug binary found, prerequisite satisfied")
+  }
+
+  if !release_exists {
+    print_info("Release binary not found, building release prerequisite...")
+    if !build_release() {
+      print_error("Failed to build release prerequisite")
+      return false
+    }
+  } else {
+    print_info("Release binary found, prerequisite satisfied")
+  }
+
+  return true
+}
+
 main :: proc() {
   print_header("Odin Build System")
 
@@ -201,12 +247,26 @@ main :: proc() {
 
   switch command {
     case "hot-reload":
+      if !ensure_prerequisites() {
+        print_error("Prerequisites not satisfied, aborting hot-reload build")
+        return
+      }
       build_hot_reload(watch, run_after, build_only)
     case "debug":
-      build_debug()
+      if !build_debug() {
+        print_error("Debug build failed")
+        return
+      }
     case "release":
-      build_release()
+      if !build_release() {
+        print_error("Release build failed")
+        return
+      }
     case "web":
+      if !ensure_prerequisites() {
+        print_error("Prerequisites not satisfied, aborting web build")
+        return
+      }
       build_web(debug, webgl2)
     case "web-single":
       build_web_single(debug, webgl2)
@@ -492,12 +552,12 @@ build_hot_reload :: proc(watch: bool, run_after: bool, build_only: bool) {
 }
 
 // debug build function - creates debug executable
-build_debug :: proc() {
+build_debug :: proc() -> bool {
   print_info("Building debug version...")
 
   if !copy_raylib_dll() {
     print_error("Failed to ensure raylib.dll is available")
-    return
+    return false
   }
 
   // configuration
@@ -514,7 +574,7 @@ build_debug :: proc() {
   // create output directory
   if !create_directory_recursive(OUT_DIR) {
     print_error(fmt.tprintf("Failed to create output directory: %s", OUT_DIR))
-    return
+    return false
   }
 
   // copy shaders to debug directory
@@ -540,20 +600,21 @@ build_debug :: proc() {
   print_info("Compiling debug build...")
   if !run_command("odin", build_args) {
     print_error("Debug build failed!")
-    return
+    return false
   }
 
   print_success("Debug build completed!")
   print_info(fmt.tprintf("Debug executable: %s", EXE_PATH))
+  return true
 }
 
 // release build function - creates optimized release executable
-build_release :: proc() {
+build_release :: proc() -> bool {
   print_info("Building release version...")
 
   if !copy_raylib_dll() {
     print_error("Failed to ensure raylib.dll is available")
-    return
+    return false
   }
 
   // configuration
@@ -570,7 +631,7 @@ build_release :: proc() {
   // create output directory
   if !create_directory_recursive(OUT_DIR) {
     print_error(fmt.tprintf("Failed to create output directory: %s", OUT_DIR))
-    return
+    return false
   }
 
   // copy shaders to release directory
@@ -592,6 +653,7 @@ build_release :: proc() {
   append(&build_args, "build", SOURCE_DIR)
   append(&build_args, "-strict-style", "-vet")
   append(&build_args, "-no-bounds-check", "-o:speed")
+  append(&build_args, "-define:ODIN_DEBUG=false")
 
   // Windows-specific subsystem flag
   when ODIN_OS == .Windows {
@@ -603,11 +665,12 @@ build_release :: proc() {
   print_info("Compiling optimized release build...")
   if !run_command("odin", build_args[:]) {
     print_error("Release build failed!")
-    return
+    return false
   }
 
   print_success("Release build completed!")
   print_info(fmt.tprintf("Release executable: %s", EXE_PATH))
+  return true
 }
 
 // web build function - creates WebAssembly build with complete EMSDK management

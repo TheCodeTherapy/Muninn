@@ -11,9 +11,9 @@ uniform float trail_aspect_ratio;
 varying vec2 fragTexCoord;
 varying vec4 fragColor;
 
-const vec3 RED = vec3(128.0, 9.0, 9.0) / 255.0;
-const vec3 YELLOW = vec3(253.0, 207.0, 88.0) / 255.0;
-const vec3 ORANGE = vec3(242.0, 125.0, 12.0) / 255.0;
+const vec3 RED = vec3(9.0, 9.0, 128.0) / 255.0;
+const vec3 YELLOW = vec3(88.0, 207.0, 253.0) / 255.0;
+const vec3 ORANGE = vec3(12.0, 125.0, 242.0) / 255.0;
 
 float hash12(vec2 p) {
   vec3 p3  = fract(vec3(p.xyx) * 0.1031);
@@ -79,5 +79,5 @@ void main() {
   float alpha = (1.3 - uv.x) * timeMask * opacity;
   vec3 finalColor = vec3(fire) * fireCol * 5.0;
 
-  gl_FragColor = vec4(finalColor * finalColor * alpha, alpha);
+  gl_FragColor = vec4(finalColor * finalColor, clamp(0.95 - fragTexCoord.x, 0.0, 1.0));
 }

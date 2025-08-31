@@ -103,7 +103,7 @@ _write_entire_file :: proc(name: string, data: []byte, truncate := true) -> (suc
 		log.errorf("File partially written, wrote %v out of %v bytes", bytes_written, len(data))
 		return
 	}
-	
+
 	log.debugf("File written successfully: %v", name)
 	return true
 }

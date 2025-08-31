@@ -4,7 +4,7 @@ import "core:math"
 import rl "vendor:raylib"
 import "core:fmt"
 
-MAX_PROJECTILES :: 10000
+MAX_PROJECTILES :: 1000
 
 MAX_SHIP_SPEED :: 1000.0
 MAX_WARP_MULTIPLIER :: 70.0
@@ -17,6 +17,8 @@ SHIP_SHOOT_INTERVAL :: 0.0125
 
 ROTATION_DEGREES_PER_SECOND :: 360.0
 
+// Movement inertia control (0.0 = instant, 1.0 = never reaches target)
+// For ease function: 0.1 = very responsive, 0.5 = balanced, 0.9 = very smooth
 MOVEMENT_INERTIA :: 0.021
 WARP_INERTIA :: 0.05
 
@@ -43,7 +45,6 @@ Ship :: struct {
 	ship_speed:     f32,            // Current speed magnitude
 	warp_speed_target: f32,         // Target warp speed (1.0 to MAX_WARP_MULTIPLIER)
 	warp_speed:     f32,            // Warp speed multiplier (1.0 to MAX_WARP_MULTIPLIER)
-	trail:          Ship_Trail,     // Ship trail system
 }
 
 init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
@@ -51,8 +52,8 @@ init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
 	ship := Ship {
 		scale = SHIP_SCALE,
 		position = start_pos,
-		world_position = start_pos,
-		arena_position = start_pos,
+		world_position = start_pos, // Start at same position as screen
+		arena_position = start_pos, // Initialize arena position
 		velocity = rl.Vector2{0.0, 0.0},
 		target_velocity = rl.Vector2{0.0, 0.0},
 		rotation = 0.0,
@@ -64,11 +65,7 @@ init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
 		ship_speed = 0.0,
 		warp_speed_target = 1.0,
 		warp_speed = 1.0,
-		trail = Ship_Trail{},
 	}
-
-	init_ship_trail(&ship.trail, ship.scale * 0.25)
-	reset_ship_trail(&ship.trail, ship.world_position, 0.0)
 
 	return ship
 }
@@ -99,16 +96,19 @@ shoot_projectile :: proc(ship: ^Ship) {
 update_projectiles :: proc(ship: ^Ship, delta_time: f32, window_width: f32, window_height: f32) {
 	for &projectile in &ship.projectiles {
 		if projectile.active {
+			// store previous position to calculate distance traveled
 			prev_position := projectile.position
 
 			projectile.position.x += projectile.velocity.x * delta_time
 			projectile.position.y += projectile.velocity.y * delta_time
 
+			// calculate distance traveled this frame
 			dx := projectile.position.x - prev_position.x
 			dy := projectile.position.y - prev_position.y
 			distance_this_frame := math.sqrt(dx * dx + dy * dy)
 			projectile.traveled += distance_this_frame
 
+			// wrap around screen edges
 			if projectile.position.x < 0 {
 				projectile.position.x = window_width
 			} else if projectile.position.x > window_width {
@@ -121,6 +121,7 @@ update_projectiles :: proc(ship: ^Ship, delta_time: f32, window_width: f32, wind
 				projectile.position.y = 0
 			}
 
+			// deactivate projectiles after they've traveled far enough
 			if projectile.traveled > 10000.0 {
 				projectile.active = false
 			}
@@ -137,6 +138,7 @@ draw_projectiles :: proc(ship: ^Ship) {
 }
 
 update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_width: f32, window_height: f32) {
+	// Direct WASD movement input (vampire survivors style)
 	input_direction := rl.Vector2{0, 0}
 
 	if rl.IsKeyDown(rl.KeyboardKey.LEFT) || rl.IsKeyDown(rl.KeyboardKey.A) {
@@ -237,15 +239,9 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 
 	// update projectiles
 	update_projectiles(ship, delta_time, window_width, window_height)
-
-	// update ship trail - distance-based sampling in WORLD SPACE with thruster offset!
-	add_trail_position(&ship.trail, ship.world_position, ship.rotation, ship.ship_speed, MAX_SHIP_SPEED, g_state.global_time)
 }
 
 draw_ship :: proc(ship: ^Ship) {
-	g_state := get_state()
-	render_ship_trail(&ship.trail, g_state.global_time, &g_state.camera, g_state.resolution.x, g_state.resolution.y, ship.rotation)
-
 	radians := ship.rotation * rl.DEG2RAD
 
 	tip := rl.Vector2 {
@@ -265,16 +261,9 @@ draw_ship :: proc(ship: ^Ship) {
 	rl.DrawLineEx(tip, left, 5.0, rl.WHITE)
 	rl.DrawLineEx(tip, right, 5.0, rl.WHITE)
 	rl.DrawLineEx(left, right, 5.0, rl.WHITE)
-
-	// rl.DrawLine(i32(tip.x), i32(tip.y), i32(left.x), i32(left.y), rl.BLACK)
-	// rl.DrawLine(i32(tip.x), i32(tip.y), i32(right.x), i32(right.y), rl.BLACK)
-	// rl.DrawLine(i32(left.x), i32(left.y), i32(right.x), i32(right.y), rl.BLACK)
-
-	// draw ship's tringle filled
 	rl.DrawTriangle(tip, right, left, {0, 0, 0, 150})
 
-	// thrust indicator
-	if rl.IsKeyDown(rl.KeyboardKey.UP) || rl.IsKeyDown(rl.KeyboardKey.W) {
+	if ship.ship_speed > 10.0 { // Show thrust when ship has some velocity
 		thrust_back := rl.Vector2 {
 			ship.position.x - math.cos(radians) * ship.scale * 0.8,
 			ship.position.y - math.sin(radians) * ship.scale * 0.8,
@@ -287,25 +276,23 @@ draw_ship :: proc(ship: ^Ship) {
 }
 
 // draw ship and projectiles to a texture with transparent background
-draw_ship_to_texture :: proc(ship: ^Ship) -> rl.Texture2D {
-	g_state := get_state()
-
-	if g_state.ship_render_target.id == 0 {
+render_ship_to_texture :: proc(ship: ^Ship, ship_render_target: rl.RenderTexture2D) -> rl.Texture2D {
+	if ship_render_target.id == 0 {
 		return rl.Texture2D{}
 	}
 
-	rl.BeginTextureMode(g_state.ship_render_target)
+	rl.BeginTextureMode(ship_render_target)
 	rl.ClearBackground(rl.Color{0, 0, 0, 0})
 	draw_ship(ship)
 	rl.EndTextureMode()
 
-	return g_state.ship_render_target.texture
+	return ship_render_target.texture
 }
 
 ship_hot_reload :: proc(ship: ^Ship) -> bool {
 	fmt.printf("=== HOT RELOADING SHIP SYSTEM ===\n")
 
-	// store current runtime state (preserve continuity)
+	// Store current RUNTIME state (preserve continuity)
 	current_position := ship.position
 	current_world_position := ship.world_position
 	current_arena_position := ship.arena_position
@@ -324,25 +311,13 @@ ship_hot_reload :: proc(ship: ^Ship) -> bool {
 		current_velocity.x, current_velocity.y,
 		current_rotation)
 
-	// get updated constants directly (pick up code changes on hot reload)
+	// Get updated constants directly (pick up code changes)
 	new_scale := f32(SHIP_SCALE)
 	new_acceleration := f32(SHIP_ACCELERATION)
 	new_friction := f32(SHIP_FRICTION)
 	new_shoot_interval := f32(SHIP_SHOOT_INTERVAL)
 
-	// hot reload the ship trail
-	if ship.trail.initialized {
-		fmt.printf("Hot reloading ship trail...\n")
-		if !ship_trail_hot_reload(&ship.trail) {
-			fmt.printf("ERROR: Ship hot reload: Failed to reload trail\n")
-			return false
-		}
-		fmt.printf("Ship trail hot reload successful\n")
-	} else {
-		fmt.printf("Ship trail not initialized, skipping trail hot reload\n")
-	}
-
-	// restore runtime state (preserve continuity)
+	// Restore RUNTIME state (preserve continuity)
 	ship.position = current_position
 	ship.world_position = current_world_position
 	ship.arena_position = current_arena_position
@@ -355,7 +330,7 @@ ship_hot_reload :: proc(ship: ^Ship) -> bool {
 	ship.warp_speed_target = current_warp_speed_target
 	ship.warp_speed = current_warp_speed
 
-	// apply new config values
+	// Apply NEW configuration values (pick up code changes)
 	ship.scale = new_scale
 	ship.acceleration = new_acceleration
 	ship.friction = new_friction
@@ -370,5 +345,5 @@ ship_hot_reload :: proc(ship: ^Ship) -> bool {
 }
 
 cleanup_ship :: proc(ship: ^Ship) {
-	destroy_ship_trail(&ship.trail)
+	// No cleanup needed for ship itself currently - projectiles are stack-allocated
 }
