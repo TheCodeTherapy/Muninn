@@ -75,6 +75,29 @@ ease :: proc(target, n, factor, dt: f32, fps: f32 = 60.0) -> f32 {
   return round((target - n) * factor_dt, 5)
 }
 
+ease_xp :: proc(current_target, prev_target, current_value, factor, dt: f32, fps: f32 = 60.0) -> f32 {
+  k := -math.ln_f32(1 - factor) * fps
+  k_dt := k * math.max(dt, 0)
+
+  // calculate target velocity (how fast the target is changing)
+  target_velocity := (current_target - prev_target) / math.max(dt, 0.00001)
+
+  // standard exponential decay term
+  decay_factor := 1 - math.exp_f32(-k_dt)
+  basic_delta := (current_target - current_value) * decay_factor
+
+  // correction term for moving target
+  // this tries to account for the target's motion during the smoothing period
+  if math.abs(target_velocity) > 0.0001 {
+    // analytical solution for constant velocity target during dt
+    velocity_correction := target_velocity * (dt - (1 - math.exp_f32(-k_dt)) / k)
+    return round(basic_delta + velocity_correction, 5)
+  } else {
+    // fallback to standard ease
+    return round(basic_delta, 5)
+  }
+}
+
 clamp :: proc(value: f32, min_val: f32, max_val: f32) -> f32 {
   return math.max(min_val, math.min(max_val, value))
 }

@@ -36,6 +36,7 @@ Ship :: struct {
 	arena_position: rl.Vector2,     // Position within arena bounds (for wrapping mode)
 	velocity:       rl.Vector2,     // Current velocity (with inertia)
 	target_velocity: rl.Vector2,    // Target velocity from WASD input
+	prev_target_velocity: rl.Vector2, // Previous frame's target velocity (for ease_xp)
 	rotation:       f32,
 	acceleration:   f32,
 	friction:       f32,
@@ -56,6 +57,7 @@ init_ship :: proc(window_width: f32, window_height: f32) -> Ship {
 		arena_position = start_pos, // Initialize arena position
 		velocity = rl.Vector2{0.0, 0.0},
 		target_velocity = rl.Vector2{0.0, 0.0},
+		prev_target_velocity = rl.Vector2{0.0, 0.0},
 		rotation = 0.0,
 		acceleration = SHIP_ACCELERATION,
 		friction = SHIP_FRICTION,
@@ -155,9 +157,13 @@ update_ship :: proc(ship: ^Ship, camera: ^Camera_State, delta_time: f32, window_
 	}
 
 	input_direction = rl.Vector2Normalize(input_direction)
+
+	// store previous target velocity for ease_xp
+	ship.prev_target_velocity = ship.target_velocity
 	ship.target_velocity = input_direction * ship.acceleration
-	ship.velocity.x += ease(ship.target_velocity.x, ship.velocity.x, MOVEMENT_INERTIA, delta_time, f32(rl.GetFPS()))
-	ship.velocity.y += ease(ship.target_velocity.y, ship.velocity.y, MOVEMENT_INERTIA, delta_time, f32(rl.GetFPS()))
+
+	ship.velocity.x += ease_xp(ship.target_velocity.x, ship.prev_target_velocity.x, ship.velocity.x, MOVEMENT_INERTIA, delta_time, f32(rl.GetFPS()))
+	ship.velocity.y += ease_xp(ship.target_velocity.y, ship.prev_target_velocity.y, ship.velocity.y, MOVEMENT_INERTIA, delta_time, f32(rl.GetFPS()))
 
 	if rl.Vector2Length(input_direction) > 0.1 {
 		target_rotation := math.atan2(input_direction.y, input_direction.x) * rl.RAD2DEG
@@ -298,6 +304,7 @@ ship_hot_reload :: proc(ship: ^Ship) -> bool {
 	current_arena_position := ship.arena_position
 	current_velocity := ship.velocity
 	current_target_velocity := ship.target_velocity
+	current_prev_target_velocity := ship.prev_target_velocity
 	current_rotation := ship.rotation
 	current_shoot_cooldown := ship.shoot_cooldown
 	current_projectiles := ship.projectiles
@@ -323,6 +330,7 @@ ship_hot_reload :: proc(ship: ^Ship) -> bool {
 	ship.arena_position = current_arena_position
 	ship.velocity = current_velocity
 	ship.target_velocity = current_target_velocity
+	ship.prev_target_velocity = current_prev_target_velocity
 	ship.rotation = current_rotation
 	ship.shoot_cooldown = current_shoot_cooldown
 	ship.projectiles = current_projectiles
