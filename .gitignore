@@ -3,6 +3,8 @@ game_hot_reload.exe
 game_hot_reload.bin
 game_hot_reload.bin.DSYM
 raylib.dll
+libraylib.so.550
+libraylib.dylib
 linux/**
 build.exe
 docs/odin
