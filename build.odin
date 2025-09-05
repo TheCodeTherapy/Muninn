@@ -28,6 +28,21 @@ CYAN      :: ansi.CSI + ansi.FG_CYAN + ansi.SGR
 WHITE     :: ansi.CSI + ansi.FG_WHITE + ansi.SGR
 BOLD      :: ansi.CSI + ansi.BOLD + ansi.SGR
 
+// Platform-specific shared library extensions
+when ODIN_OS == .Windows {
+	SHARED_LIB_EXT :: ".dll"
+	RAYLIB_DIR :: "windows"
+	RAYLIB_NAME :: "raylib.dll"
+} else when ODIN_OS == .Darwin {
+	SHARED_LIB_EXT :: ".dylib"
+	RAYLIB_DIR :: "macos"
+	RAYLIB_NAME :: "libraylib.dylib"
+} else {
+	SHARED_LIB_EXT :: ".so"
+	RAYLIB_DIR :: "linux"
+	RAYLIB_NAME :: "libraylib.so.550"
+}
+
 GLOBAL_WASM_PARAMS :: "-sUSE_GLFW=3 -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sASSERTIONS -s ALLOW_MEMORY_GROWTH=1 -s MEMORY_GROWTH_LINEAR_STEP=32MB -s STACK_SIZE=2MB -s INITIAL_MEMORY=32MB -s MAXIMUM_MEMORY=128MB"
 
 // coloured output helpers with colors and simple text indicators
@@ -509,8 +524,8 @@ build_web_single :: proc(debug := false, webgl2 := false) {
 build_hot_reload :: proc(watch: bool, run_after: bool, build_only: bool) {
   print_info("Building hot-reload version...")
 
-  if !copy_raylib_dll() {
-    print_error("Failed to ensure raylib.dll is available")
+  if !copy_raylib_lib() {
+    print_error(fmt.tprintf("Failed to ensure %s is available", RAYLIB_NAME))
     return
   }
 
@@ -542,6 +557,8 @@ build_hot_reload :: proc(watch: bool, run_after: bool, build_only: bool) {
 
   if actual_watch {
     start_file_watcher(OUT_DIR, GAME_PDBS_DIR, SOURCE_DIR, EXE)
+    print_success("Hot-reload session ended.")
+    print_info("Game has been closed. Build system exiting gracefully.")
   } else if run_after {
     print_info("Starting game...")
     start_game(EXE)
@@ -555,8 +572,8 @@ build_hot_reload :: proc(watch: bool, run_after: bool, build_only: bool) {
 build_debug :: proc() -> bool {
   print_info("Building debug version...")
 
-  if !copy_raylib_dll() {
-    print_error("Failed to ensure raylib.dll is available")
+  if !copy_raylib_lib() {
+    print_error(fmt.tprintf("Failed to ensure %s is available", RAYLIB_NAME))
     return false
   }
 
@@ -612,8 +629,8 @@ build_debug :: proc() -> bool {
 build_release :: proc() -> bool {
   print_info("Building release version...")
 
-  if !copy_raylib_dll() {
-    print_error("Failed to ensure raylib.dll is available")
+  if !copy_raylib_lib() {
+    print_error(fmt.tprintf("Failed to ensure %s is available", RAYLIB_NAME))
     return false
   }
 
@@ -1060,21 +1077,21 @@ get_odin_root :: proc() -> (string, bool) {
   return strings.trim_space(result.output), true
 }
 
-// check if raylib.dll exists in project root
-check_raylib_dll_exists :: proc() -> bool {
-  return os.exists("raylib.dll")
+// check if raylib shared library exists in project root
+check_raylib_lib_exists :: proc() -> bool {
+  return os.exists(RAYLIB_NAME)
 }
 
-// copy raylib.dll from Odin vendor directory to project root
-copy_raylib_dll :: proc() -> bool {
-  print_info("Checking for raylib.dll in project root...")
+// copy raylib shared library from Odin vendor directory to project root
+copy_raylib_lib :: proc() -> bool {
+  print_info(fmt.tprintf("Checking for %s in project root...", RAYLIB_NAME))
 
-  if check_raylib_dll_exists() {
-    print_info("raylib.dll already exists in project root")
+  if check_raylib_lib_exists() {
+    print_info(fmt.tprintf("%s already exists in project root", RAYLIB_NAME))
     return true
   }
 
-  print_info("raylib.dll not found, copying from Odin vendor directory...")
+  print_info(fmt.tprintf("%s not found, copying from Odin vendor directory...", RAYLIB_NAME))
 
   // get Odin root path
   odin_root, ok := get_odin_root()
@@ -1083,30 +1100,30 @@ copy_raylib_dll :: proc() -> bool {
   }
 
   // construct source path
-  raylib_source := fmt.tprintf("%s/vendor/raylib/windows/raylib.dll", odin_root)
+  raylib_source := fmt.tprintf("%s/vendor/raylib/%s/%s", odin_root, RAYLIB_DIR, RAYLIB_NAME)
 
   // check if source file exists
   if !os.exists(raylib_source) {
-    print_error(fmt.tprintf("raylib.dll not found at: %s", raylib_source))
+    print_error(fmt.tprintf("%s not found at: %s", RAYLIB_NAME, raylib_source))
     return false
   }
 
   // read source file
-  dll_data, read_ok := os.read_entire_file(raylib_source)
+  lib_data, read_ok := os.read_entire_file(raylib_source)
   if !read_ok {
-    print_error(fmt.tprintf("Failed to read raylib.dll from: %s", raylib_source))
+    print_error(fmt.tprintf("Failed to read %s from: %s", RAYLIB_NAME, raylib_source))
     return false
   }
-  defer delete(dll_data)
+  defer delete(lib_data)
 
   // write to project root
-  write_ok := os.write_entire_file("raylib.dll", dll_data)
+  write_ok := os.write_entire_file(RAYLIB_NAME, lib_data)
   if !write_ok {
-    print_error("Failed to write raylib.dll to project root")
+    print_error(fmt.tprintf("Failed to write %s to project root", RAYLIB_NAME))
     return false
   }
 
-  print_success("raylib.dll copied successfully to project root")
+  print_success(fmt.tprintf("%s copied successfully to project root", RAYLIB_NAME))
   return true
 }
 
@@ -1225,9 +1242,9 @@ build_game_dll :: proc(out_dir: string, pdbs_dir: string, source_dir: string, is
   pdb_path := fmt.tprintf("%s/game_%d.pdb", pdbs_dir, pdb_number)
 
   if is_watch_mode {
-    print_rebuild(fmt.tprintf("Rebuilding game.dll (PDB #%d)...", pdb_number))
+    print_rebuild(fmt.tprintf("Rebuilding game%s (PDB #%d)...", SHARED_LIB_EXT, pdb_number))
   } else {
-    print_info("Building game.dll...")
+    print_info(fmt.tprintf("Building game%s...", SHARED_LIB_EXT))
   }
 
   // build the actual command
@@ -1237,8 +1254,7 @@ build_game_dll :: proc(out_dir: string, pdbs_dir: string, source_dir: string, is
     "-define:RAYLIB_SHARED=true",
     "-define:ODIN_DEBUG=true",
     "-build-mode:dll",
-    fmt.tprintf("-out:%s/game_tmp.dll", out_dir),
-    fmt.tprintf("-pdb-name:%s", pdb_path),
+    fmt.tprintf("-out:%s/game_tmp%s", out_dir, SHARED_LIB_EXT),
   }
 
   // execute the build command
@@ -1248,8 +1264,8 @@ build_game_dll :: proc(out_dir: string, pdbs_dir: string, source_dir: string, is
   }
 
   // atomic move to prevent loading incomplete DLL
-  old_path := fmt.tprintf("%s/game_tmp.dll", out_dir)
-  new_path := fmt.tprintf("%s/game.dll", out_dir)
+  old_path := fmt.tprintf("%s/game_tmp%s", out_dir, SHARED_LIB_EXT)
+  new_path := fmt.tprintf("%s/game%s", out_dir, SHARED_LIB_EXT)
 
   if os.exists(new_path) {
     os.remove(new_path)
@@ -1272,7 +1288,7 @@ build_game_dll :: proc(out_dir: string, pdbs_dir: string, source_dir: string, is
   if is_watch_mode {
     print_success("Hot reload complete!")
   } else {
-    print_success("Game DLL built successfully!")
+    print_success(fmt.tprintf("Game%s built successfully!", SHARED_LIB_EXT))
   }
 
   return true
@@ -1285,7 +1301,6 @@ build_game_exe :: proc(out_dir: string, exe_name: string) -> bool {
     "build", "src/main_hot_reload",
     "-strict-style", "-vet", "-debug",
     fmt.tprintf("-out:%s", exe_name),
-    fmt.tprintf("-pdb-name:%s/main_hot_reload.pdb", out_dir),
   }
 
   if !run_command("odin", build_args) {
@@ -1351,14 +1366,14 @@ is_game_running :: proc(exe_name: string) -> bool {
     }
     return false
   } else {
-    // for Unix systems, use pgrep???
+    // for Unix systems, use pgrep
     process_name := strings.trim_suffix(exe_name, ".exe")
     cmd_args := []string{"pgrep", process_name}
 
     process_desc := os2.Process_Desc{
       command = cmd_args,
-      stdout = os2.stdout,
-      stderr = os2.stderr,
+      stdout = nil,  // don't print process IDs to stdout
+      stderr = nil,  // don't print errors to stderr
     }
 
     process, start_err := os2.process_start(process_desc)
@@ -1384,14 +1399,22 @@ start_game :: proc(exe_name: string) -> bool {
   when ODIN_OS == .Windows {
     // use cmd /c start to launch the game in a new process
     cmd_args := []string{"cmd", "/c", "start", "/B", exe_name}
+    process_desc := os2.Process_Desc{
+      command = cmd_args,
+      stdout = os2.stdout,
+      stderr = os2.stderr,
+    }
   } else {
-    cmd_args := []string{fmt.tprintf("./%s", exe_name), "&"}
-  }
-
-  process_desc := os2.Process_Desc{
-    command = cmd_args,
-    stdout = os2.stdout,
-    stderr = os2.stderr,
+    // on Linux/Unix, use env to set LD_LIBRARY_PATH
+    existing_ld_path := os.get_env("LD_LIBRARY_PATH")
+    new_ld_path := existing_ld_path == "" ? "." : fmt.tprintf(".:%s", existing_ld_path)
+    cmd_args := []string{"env", fmt.tprintf("LD_LIBRARY_PATH=%s", new_ld_path), fmt.tprintf("./%s", exe_name)}
+    
+    process_desc := os2.Process_Desc{
+      command = cmd_args,
+      stdout = os2.stdout,
+      stderr = os2.stderr,
+    }
   }
 
   process, start_err := os2.process_start(process_desc)
